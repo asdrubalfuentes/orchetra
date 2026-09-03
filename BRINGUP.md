@@ -35,6 +35,12 @@ Contrato de datos: [`REGISTER_MAP.md`](REGISTER_MAP.md) (`CONTRACT_VERSION 1`).
    → http://localhost:5000 → pestaña **🏭 PLC-SIM**.
    - Servidor Modbus TCP: `0.0.0.0` : `502` (o `1502`). **Iniciar.**
    - Sin gateway aún: las estaciones salen *SIN ENLACE* + alarma de enlace. Es lo esperado.
+   - **Con datos vivos sin LoRa:** en otra terminal
+     `python orchestration/tools/fake_gateway.py --port 1602 --scenario normal`
+     y en *PLC-SIM → Cliente → Pasarela LoRa* pon `127.0.0.1:1602`. Escenarios:
+     `normal`, `lowlevel`, `highlevel`, `tamper`, `noflow`, `novolt`.
+   - **Verificar el MAPA B:** `python orchestration/tools/mapb_check.py --host 127.0.0.1 --port 502`
+     (añade `--write` para probar silenciar y aplicar escala). Salida 0 = conforme.
 2. **miHMI** — en `include/config.h`: `WIFI_SSID/PASS` de tu red, `PLC_HOST` = IP
    del PC en esa red, `PLC_PORT` = 502/1502. Compilar y flashear.
 3. En el HMI → **Ajustes**: *Fuente activa* debe pasar a `PLC-TCP`, *Origen* =
