@@ -41,11 +41,15 @@ repos; este define **el contrato que los une** y la documentación que los cruza
 
 ## Estado
 
-- Contrato **v1** en producción de banco. Cadena `nodo → pasarela → PLC-SIM → HMI`
-  verificada (`mapb_check` 0 FAIL).
+- Contrato **`CONTRACT_VERSION 2`** (perfil LOGO!: bloque global en Holding
+  Registers `HR 96`, FC02 opcional). Migrados contrato, `plc_sim.py`, `miHMI` y
+  `mapb_check.py` — verificado 0 FAIL.
+- Cadena `nodo → pasarela → PLC-SIM → HMI` funcionando en banco.
 - **`PLC_LOGIC.md`**: diseño del programa del LOGO! 9 listo para construir en FBD.
-- Pendiente: migración a **`CONTRACT_VERSION 2`** (bloque global a Holding
-  Registers para que quepa en la VM del LOGO!; FC02 opcional) — ver `PLC_LOGIC.md` §9.
+  Ingesta confirmada: el LOGO! hace de **cliente Modbus** y sondea la pasarela
+  directo (no hay que tocar `nodeIO_master`).
+- Siguiente: construir el programa en LOGO! Soft Comfort V9 y verificar el LOGO!
+  real con `mapb_check`.
 
 ## Verificador de conformidad
 

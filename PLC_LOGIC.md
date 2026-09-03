@@ -14,10 +14,9 @@ Modbus TCP (**MAPA B** del [contrato](REGISTER_MAP.md)) para el HMI y el SCADA.
   3. Una **guía de construcción en FBD** bloque a bloque.
 - LOGO! 9: analógicos en **coma flotante 32-bit**, bloque **Float Mathematic**,
   hasta 800 bloques, IEC-CRA security. Todo lo de abajo asume el formato float.
-- **LOGO! Modbus TCP**: históricamente el LOGO! es **servidor/esclavo** Modbus.
-  V9 *podría* permitir lecturas Modbus como *Network Input* — ver §2. La lógica
-  de este documento no depende de ello: el dato crudo llega a una zona de VM y de
-  ahí en adelante da igual quién la escribió.
+- **LOGO! Modbus TCP** (confirmado en V9): el LOGO! es a la vez **servidor**
+  (publica el MAPA B) y **cliente** — vía *Network Input/Output → Modbus* lee el
+  MAPA A del gateway y le escribe la sirena de vuelta. Ver §1.
 - Direcciones Modbus: **0-based de PDU** (las que viajan en el frame). El diálogo
   de mapeo de LSC puede mostrarlas como `4xxxx`/`3xxxx` (1-based).
 
@@ -26,34 +25,43 @@ Modbus TCP (**MAPA B** del [contrato](REGISTER_MAP.md)) para el HMI y el SCADA.
 ## 1. Arquitectura con el LOGO! real
 
 ```
-  nodos LoRa (nodeIO) ──LoRa──► nodeIO_master ──Modbus TCP──►  LOGO! 9 (servidor Modbus, VM)
-                                (LoRa Gateway)   MAPA A crudo    │  programa FBD: escala + alarmas
+  nodos LoRa (nodeIO) ──LoRa──► nodeIO_master ──Modbus TCP──►  LOGO! 9
+                                (LoRa Gateway)  MAPA A (:502)    │  cliente Modbus: LEE el MAPA A
+                                                servidor         │  programa FBD: escala + alarmas
                                                                  │  + sirena + totalizador
-  HMI / SCADA ──Modbus TCP──► lee MAPA B de la VM ◄──────────────┘
+                                                                 │  servidor Modbus: MAPA B (:502)
+  HMI / SCADA ──Modbus TCP──► leen el MAPA B del LOGO! ◄─────────┘
 ```
 
-El LOGO! tiene en VM **dos zonas**:
+El LOGO! 9 hace **de las dos cosas a la vez**:
+- **cliente** Modbus TCP → sondea el MAPA A del gateway y lo mete en su VM (como el PLC-SIM);
+- **servidor** Modbus TCP → publica el MAPA B (calculado por el programa FBD) para el HMI y el SCADA.
+
+Zonas de VM:
 
 | Zona | Quién escribe | Quién lee | Contenido |
 |---|---|---|---|
-| **ENTRADA (crudo)** | el gateway (o el propio LOGO! si hace de cliente) | el programa FBD | por estación: nivel raw, caudal raw, DI (presostato/voltaje/tamper), enlace, RSSI, edad |
+| **ENTRADA (crudo)** | el propio LOGO! (Network Input Modbus) | el programa FBD | por estación: nivel raw, caudal raw, DI (presostato/voltaje/tamper), enlace, RSSI, edad |
 | **MAPA B** | el programa FBD (+ el HMI escribe el bloque de escala y los coils de comando) | HMI, SCADA | nivel/caudal escalados, acumulados, estado, alarmas, RSSI, edad, bloque de escala |
 
-### Cómo entra el MAPA A al LOGO!
+### Cómo entra el MAPA A al LOGO!  (confirmado: LOGO! cliente Modbus)
 
-**Opción A — LOGO! cliente Modbus (preferida si V9 la trae).**
-En LSC V9, *Instrucciones → Network Input*: añade una lectura Modbus TCP contra el
-gateway (`192.168.1.241:502`), **FC04**, dirección de inicio `slot*16`, 11
-registros, hacia `NAI`/`VW` de la zona de ENTRADA. Es exactamente lo que hace el
-PLC-SIM. **Verifica en tu V9** si "Network Input" ofrece "Modbus" (además de
-LOGO!/S7).
+En LSC V9, *Instrucciones → Network Input → Modbus*, **por cada estación** `s`:
 
-**Opción B — el gateway empuja (si el LOGO! solo es servidor).**
-`nodeIO_master` añade un **cliente Modbus TCP** que, además de servir el MAPA A,
-**escribe** el bloque de cada nodo en la VM del LOGO! (`writeHreg`). Es un cambio
-acotado de firmware (§9). La zona de ENTRADA del LOGO! queda igual.
+| Parámetro | Valor |
+|---|---|
+| Dispositivo remoto | IP del gateway `nodeIO_master` (`192.168.1.241`), puerto `502`, Unit ID `1` |
+| Función | **FC04** (leer Input Registers) |
+| Dirección de inicio | `slot·16` (estación 0 → 0, estación 1 → 16) |
+| Cantidad | 7 registros (offsets 0..6: `AI1, AI2, AI3, AI4, DIbits, relés, enlace`); o 11 si quieres RSSI/edad/addr |
+| Destino | `NAI`/`VW` de la zona de ENTRADA (§2.1) |
+| Periodo de sondeo | 500–1000 ms |
 
-En ambos casos el programa FBD lee la **misma** zona de VM.
+**Escritura de la sirena de vuelta al nodo:** *Network Output → Modbus*, **FC05**
+(escribir 1 coil), dispositivo = el mismo gateway, dirección `slot·16 + 0`
+(coil RO1 = sirena), valor = `sirena[s]` (§6).
+Si tu V9 no permite *Network Output* Modbus, cablea la sirena a un **`Q` local**
+del LOGO! como alternativa.
 
 ---
 
@@ -337,7 +345,7 @@ alarmas_prev[s] := B[s].alarmas
 
 // salida física
 Q_sirena[s]  := sirena[s]                 // relé local del LOGO!  (o…)
-gw_coil[s]   := sirena[s]                 // …escribir el coil RO1 del nodo por el MAPA A (Opción A/B)
+gw_coil[s]   := sirena[s]                 // …y escribir el coil RO1 del nodo (Network Output Modbus, FC05)
 B[s].estado.bit4 := sirena[s]
 B[s].estado.bit7 := cb[s].SIREN_AUTO
 ```
@@ -382,8 +390,8 @@ constantes o un **OR** de bits mapeado a VW.
 2. **Propiedades del proyecto → Comunicación**:
    - Activa **Modbus** (servidor). Anota/ajusta el **mapeo VM ↔ registro** — es la
      tabla de §2. Confirma que `HR0 = VW0`, `HR1 = VW2`, …
-   - (Opción A) Si vas a leer el gateway desde el LOGO!, configura la conexión
-     Modbus cliente / *Network Input*.
+   - Configura el **Network Input Modbus** que lee el gateway (§1) y el
+     **Network Output Modbus** que escribe la sirena.
    - Deja **OPC UA** activado si el SCADA lo va a usar (perfil DA).
 3. **Marcas retentivas**: marca como retentivas las VW/VD de acumulados, sello de
    config y parámetros de escala (para que sobrevivan a un corte).
@@ -409,7 +417,7 @@ constantes o un **OR** de bits mapeado a VW.
 | `modbusMaster/plc_sim.py` | global a `HR 96`; `contract` = 2 | **hecho** (reinicia `python app.py` para cargarlo) |
 | `miHMI` | leer el global por `HR 96`; `CONTRACT_VERSION 2` | **hecho** — recompilar/flashear |
 | `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2` | **hecho** (verificado 0 FAIL) |
-| `nodeIO_master` | **Opción B**: modo "push" — cliente Modbus TCP que escribe el bloque de cada nodo en la VM del LOGO! (`plcHost`/`plcPort`/`vmBase` en el portal). Solo si tu LOGO! 9 **no** hace de cliente Modbus | **pendiente** — dímelo y lo hago |
+| `nodeIO_master` | ninguno | **no necesario** — confirmado que el LOGO! 9 hace de cliente Modbus y sondea el gateway directo |
 
 ---
 
