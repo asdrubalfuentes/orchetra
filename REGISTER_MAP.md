@@ -5,7 +5,10 @@ Documento maestro. Define **cómo hablan entre sí** el LOGO! 9, la pasarela LoR
 SCADA remoto. Todo lo que se codifique en esos proyectos debe cumplir este
 documento. Si algo cambia aquí, se sube `CONTRACT_VERSION` y se actualizan los 4.
 
-`CONTRACT_VERSION = 1` · fecha 2026-09-02
+`CONTRACT_VERSION = 2` · fecha 2026-09-03
+*(v2: el bloque global pasa de Input Registers `IR 2000` a Holding Registers
+`HR 96` para que quepa en la VM del LOGO! 9; los Discrete Inputs FC02 pasan a
+opcionales. El resto es idéntico a v1.)*
 
 ---
 
@@ -44,7 +47,7 @@ documento. Si algo cambia aquí, se sube `CONTRACT_VERSION` y se actualizan los 
 
 **Acople seguro:** el LOGO! real y el PLC-SIM exponen el **mismo Mapa B, mismo
 puerto, mismo Unit ID**. Migrar de simulador a PLC = repuntar la IP en el HMI y
-en el SCADA. El registro global `IR 2007` indica contra quién se está hablando
+en el SCADA. El registro global `HR 103` indica contra quién se está hablando
 (0 = SIM, 1 = LOGO! real).
 
 ---
@@ -178,6 +181,10 @@ Estaciones: **`s = 0..N-1`**, hoy `N = 2`.
 
 ### 4.2 Bloque por estación — Discrete Inputs (FC02), base `db = s * 16`
 
+> **Opcional desde v2.** Todos estos bits están también en `HR_STATUS` (`hb+8`);
+> un servidor (p.ej. el LOGO!, cuya VM no expone FC02 fácilmente) puede omitir
+> este bloque. Los clientes deben tolerar que FC02 no responda y usar `HR_STATUS`.
+
 | Offset | Campo |
 |---|---|
 | `db+0` | Presostato |
@@ -212,7 +219,7 @@ escribir. El LOGO! real y el PLC-SIM deben interpretarlas igual.
 
 **Mapa de estaciones (N = 2):** Estación 0 → Coils/DI `0..15` · Estación 1 → `16..31`.
 
-### 4.4 Tabla de alarmas (`hb+9` por estación, `IR 2003` resumen global)
+### 4.4 Tabla de alarmas (`hb+9` por estación, `HR 99` resumen global)
 
 | Bit | Alarma | Origen |
 |---|---|---|
@@ -229,21 +236,26 @@ escribir. El LOGO! real y el PLC-SIM deben interpretarlas igual.
 | 10 | Sobre-rango de instrumento | crudo fuera de [raw_min, raw_max] con margen |
 | 11..15 | reserva | |
 
-### 4.5 Bloque global — Input Registers (FC04), base `2000`
+### 4.5 Bloque global — Holding Registers (FC03), base `96`
+
+> **v2:** antes estaba en `IR 2000` (FC04). Se movió a Holding Registers `HR 96`
+> porque `IR 2000` cae fuera del rango de VM del LOGO! 9 y los valores calculados
+> por el LOGO! viven en VW → Holding Registers. Va justo detrás de las 2
+> estaciones (`HR 0..63`), con hueco hasta `HR 95`.
 
 | Dir | Campo | Notas |
 |---|---|---|
-| `2000` | Marca de protocolo Mapa B | `0x0B01` |
-| `2001` | Nº de estaciones | hoy 2 |
-| `2002` | Estaciones en línea (bitfield) | bit`s` = 1 si la estación `s` tiene enlace |
-| `2003` | Alarma general (bitfield) | OR de las alarmas de todas las estaciones |
-| `2004` | **Heartbeat** | contador que incrementa cada 1 s; el HMI vigila que cambie |
-| `2005` | Uptime — palabra alta (W0) | 32b, s (orden hi-first, §2) |
-| `2006` | Uptime — palabra baja (W1) | 32b, s |
-| `2007` | Origen | 0 = PLC-SIM · 1 = LOGO! real |
-| `2008` | Versión de lógica / firmware | libre |
-| `2009` | `CONTRACT_VERSION` | debe coincidir con este documento (= 1) |
-| `2010..2015` | reserva | |
+| `96` | Marca de protocolo Mapa B | `0x0B01` |
+| `97` | Nº de estaciones | hoy 2 |
+| `98` | Estaciones en línea (bitfield) | bit`s` = 1 si la estación `s` tiene enlace |
+| `99` | Alarma general (bitfield) | OR de las alarmas de todas las estaciones |
+| `100` | **Heartbeat** | contador que incrementa cada 1 s; el HMI vigila que cambie |
+| `101` | Uptime — palabra alta (W0) | 32b, s (orden hi-first, §2) |
+| `102` | Uptime — palabra baja (W1) | 32b, s |
+| `103` | Origen | 0 = PLC-SIM · 1 = LOGO! real |
+| `104` | Versión de lógica / firmware | libre |
+| `105` | `CONTRACT_VERSION` | debe coincidir con este documento (= 2) |
+| `106..107` | reserva | |
 
 ---
 
@@ -294,7 +306,7 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 
 ## 7. Versionado del contrato
 
-- `CONTRACT_VERSION` vive en este documento y se refleja en `IR 2009` del Mapa B.
+- `CONTRACT_VERSION` vive en este documento y se refleja en `HR 105` del Mapa B.
 - Cambios **compatibles** (añadir campos en reservas): no sube la versión, se
   anota en el changelog de abajo.
 - Cambios **incompatibles** (mover/reinterpretar un campo, cambiar endianness o
@@ -305,3 +317,4 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 | Versión | Fecha | Cambio |
 |---|---|---|
 | 1 | 2026-09-02 | Versión inicial. Mapa A congelado desde `nodeIO_master/src/modbus_gw.*`. Mapa B nuevo: 2 estaciones, señales Nivel/Caudal + presostato/voltaje/tamper + sirena, escalado en `hb+20..31`, comandos en coils `cb+0..8`, global en `IR 2000..2009`. |
+| 2 | 2026-09-03 | **Perfil LOGO! 9.** Bloque global movido de `IR 2000..2009` (FC04) a `HR 96..107` (FC03) — cabe en la VM del LOGO!. Discrete Inputs FC02 (§4.2) pasan a **opcionales** (sus bits ya están en `HR_STATUS`). Sin cambios en estaciones, escalado ni comandos. Migrados: `plc_sim.py`, `miHMI`, `tools/mapb_check.py`. |

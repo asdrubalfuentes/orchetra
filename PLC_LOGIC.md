@@ -405,17 +405,11 @@ constantes o un **OR** de bits mapeado a VW.
 
 | Dónde | Cambio | Estado |
 |---|---|---|
-| `REGISTER_MAP.md` | `CONTRACT_VERSION 2`: bloque global a `HR 96..105`; FC02 opcional | **pendiente** — migración v2 (siguiente paso) |
-| `modbusMaster/plc_sim.py` | global a `HR 96`; `contract` = 2 | **pendiente** — migración v2 |
-| `miHMI` | leer el global por `HR 96` en vez de `IR 2000`; `CONTRACT_VERSION 2` | **pendiente** — migración v2 (recompilar/flashear) |
-| `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2` | **pendiente** — migración v2 |
+| `REGISTER_MAP.md` | `CONTRACT_VERSION 2`: bloque global a `HR 96..105`; FC02 opcional | **hecho** |
+| `modbusMaster/plc_sim.py` | global a `HR 96`; `contract` = 2 | **hecho** (reinicia `python app.py` para cargarlo) |
+| `miHMI` | leer el global por `HR 96`; `CONTRACT_VERSION 2` | **hecho** — recompilar/flashear |
+| `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2` | **hecho** (verificado 0 FAIL) |
 | `nodeIO_master` | **Opción B**: modo "push" — cliente Modbus TCP que escribe el bloque de cada nodo en la VM del LOGO! (`plcHost`/`plcPort`/`vmBase` en el portal). Solo si tu LOGO! 9 **no** hace de cliente Modbus | **pendiente** — dímelo y lo hago |
-
-> La **migración a `CONTRACT_VERSION 2`** (relocalizar el bloque global, FC02
-> opcional) toca el HMI y el sim que ya funcionan; se hará como paso siguiente,
-> con prueba de regresión. Mientras, el HMI sigue en v1 y el LOGO! debe
-> construirse contra v1 salvo el bloque global — que **no cabe** en `IR 2000` de
-> la VM del LOGO!. Coordina conmigo antes de programar el bloque global.
 
 ---
 

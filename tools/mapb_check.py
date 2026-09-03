@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mapb_check.py  -  Verificador de conformidad del MAPA B (contrato CONTRACT_VERSION 1).
+mapb_check.py  -  Verificador de conformidad del MAPA B (contrato CONTRACT_VERSION 2).
 
 Se conecta por Modbus TCP a un endpoint MAPA B (el PLC-SIM de modbusMaster ahora,
 el LOGO! 9 real despues) y comprueba estructura, coherencia y semantica de
@@ -17,7 +17,7 @@ import time
 
 from pymodbus.client import ModbusTcpClient
 
-CONTRACT_VERSION = 1
+CONTRACT_VERSION = 2
 MAPB_MARK        = 0x0B01
 HR_STRIDE, DI_STRIDE, CO_STRIDE = 32, 16, 16
 
@@ -36,10 +36,10 @@ CO_APPLY_SCALE, CO_ARM_RESET               = 8, 9
 DI_PRESOSTATO, DI_VOLT_LOCAL, DI_TAMPER, DI_SPARE4 = 0, 1, 2, 3
 DI_LORA_OK, DI_IN_ALARM, DI_SIREN_ON, DI_FRESH     = 4, 5, 6, 7
 
-# --- bloque global (input registers) ---
-IR_G_MARK, IR_G_NSTATIONS, IR_G_ONLINE, IR_G_ALARM_OR = 2000, 2001, 2002, 2003
-IR_G_HEARTBEAT, IR_G_UPTIME_W0, IR_G_UPTIME_W1        = 2004, 2005, 2006
-IR_G_ORIGIN, IR_G_LOGIC_VER, IR_G_CONTRACT            = 2007, 2008, 2009
+# --- bloque global (Holding Registers, v2: antes en IR 2000) ---
+G_MARK, G_NSTATIONS, G_ONLINE, G_ALARM_OR = 96, 97, 98, 99
+G_HEARTBEAT, G_UPTIME_W0, G_UPTIME_W1     = 100, 101, 102
+G_ORIGIN, G_LOGIC_VER, G_CONTRACT         = 103, 104, 105
 
 ST_BITS = [(1 << 0, "presostato"), (1 << 1, "volt_local"), (1 << 2, "tamper"),
            (1 << 3, "spare4"), (1 << 4, "sirena_on"), (1 << 5, "link_ok"),
@@ -101,28 +101,28 @@ class Checker:
 
     # ---------------------------------------------------------------
     def check_global(self):
-        print("\n== Bloque global (IR 2000..2009) ==")
-        g = self.ir(IR_G_MARK, 10)
-        if not self.ok(g is not None, "responde IR 2000..2009"):
+        print("\n== Bloque global (HR 96..105) ==")
+        g = self.hr(G_MARK, 10)
+        if not self.ok(g is not None, "responde HR 96..105"):
             return 2
         self.ok(g[0] == MAPB_MARK, f"marca de protocolo = 0x{g[0]:04X} (esperado 0x0B01)")
-        self.ok(g[IR_G_CONTRACT - IR_G_MARK] == CONTRACT_VERSION,
-                f"CONTRACT_VERSION = {g[IR_G_CONTRACT - IR_G_MARK]} (esperado {CONTRACT_VERSION})")
-        origin = g[IR_G_ORIGIN - IR_G_MARK]
+        self.ok(g[G_CONTRACT - G_MARK] == CONTRACT_VERSION,
+                f"CONTRACT_VERSION = {g[G_CONTRACT - G_MARK]} (esperado {CONTRACT_VERSION})")
+        origin = g[G_ORIGIN - G_MARK]
         self.ok(origin in (0, 1), f"origen = {origin}")
         self.note(f"origen: {'LOGO! real' if origin == 1 else 'PLC-SIM'} | "
-                  f"logica v{g[IR_G_LOGIC_VER - IR_G_MARK]}")
-        n = g[IR_G_NSTATIONS - IR_G_MARK]
+                  f"logica v{g[G_LOGIC_VER - G_MARK]}")
+        n = g[G_NSTATIONS - G_MARK]
         self.ok(1 <= n <= 16, f"nro de estaciones = {n}")
-        self.note(f"online_bits=0b{g[IR_G_ONLINE - IR_G_MARK]:016b}  "
-                  f"alarma_general=[{bits_txt(g[IR_G_ALARM_OR - IR_G_MARK], ALM_BITS)}]")
+        self.note(f"online_bits=0b{g[G_ONLINE - G_MARK]:016b}  "
+                  f"alarma_general=[{bits_txt(g[G_ALARM_OR - G_MARK], ALM_BITS)}]")
 
-        hb0 = g[IR_G_HEARTBEAT - IR_G_MARK]
-        up0 = u32_hi_first(g[IR_G_UPTIME_W0 - IR_G_MARK], g[IR_G_UPTIME_W1 - IR_G_MARK])
+        hb0 = g[G_HEARTBEAT - G_MARK]
+        up0 = u32_hi_first(g[G_UPTIME_W0 - G_MARK], g[G_UPTIME_W1 - G_MARK])
         self.note(f"latido={hb0}  uptime={up0}s  (esperando 2.5 s para ver el latido avanzar...)")
         time.sleep(2.5)
-        g2 = self.ir(IR_G_MARK, 10)
-        hb1 = g2[IR_G_HEARTBEAT - IR_G_MARK] if g2 else hb0
+        g2 = self.hr(G_MARK, 10)
+        hb1 = g2[G_HEARTBEAT - G_MARK] if g2 else hb0
         self.ok(hb1 != hb0, f"latido avanza ({hb0} -> {hb1})")
         return n
 
@@ -134,8 +134,6 @@ class Checker:
         co = self.co(s * CO_STRIDE, 16)
         if not self.ok(hr is not None, "responde el bloque HR"):
             return
-        if not self.ok(di is not None, "responde el bloque DI"):
-            di = [False] * 8
         if not self.ok(co is not None, "responde el bloque de coils"):
             co = [False] * 16
 
@@ -151,12 +149,15 @@ class Checker:
         self.note(f"STATUS=[{bits_txt(st, ST_BITS)}]")
         self.note(f"ALARMS=[{bits_txt(alm, ALM_BITS)}]")
 
-        # coherencia DI <-> HR_STATUS
-        pairs = [(DI_PRESOSTATO, 1 << 0, "presostato"), (DI_VOLT_LOCAL, 1 << 1, "volt_local"),
-                 (DI_TAMPER, 1 << 2, "tamper"), (DI_LORA_OK, 1 << 5, "link_ok"),
-                 (DI_IN_ALARM, 1 << 6, "en_alarma"), (DI_SIREN_ON, 1 << 4, "sirena_on")]
-        for dbit, sbit, nm in pairs:
-            self.ok(bool(di[dbit]) == bool(st & sbit), f"DI[{dbit}] coincide con STATUS.{nm}")
+        # coherencia DI <-> HR_STATUS  (FC02 es opcional desde v2)
+        if di is None:
+            self.note("FC02 no expuesto (opcional en v2); se omite la coherencia DI<->STATUS")
+        else:
+            pairs = [(DI_PRESOSTATO, 1 << 0, "presostato"), (DI_VOLT_LOCAL, 1 << 1, "volt_local"),
+                     (DI_TAMPER, 1 << 2, "tamper"), (DI_LORA_OK, 1 << 5, "link_ok"),
+                     (DI_IN_ALARM, 1 << 6, "en_alarma"), (DI_SIREN_ON, 1 << 4, "sirena_on")]
+            for dbit, sbit, nm in pairs:
+                self.ok(bool(di[dbit]) == bool(st & sbit), f"DI[{dbit}] coincide con STATUS.{nm}")
 
         # bloque de escala hb+20..31
         sc = hr[HR_SCALE_BASE:HR_SCALE_BASE + 12]
