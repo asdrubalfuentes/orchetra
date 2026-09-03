@@ -113,7 +113,7 @@ class Checker:
         self.note(f"origen: {'LOGO! real' if origin == 1 else 'PLC-SIM'} | "
                   f"logica v{g[IR_G_LOGIC_VER - IR_G_MARK]}")
         n = g[IR_G_NSTATIONS - IR_G_MARK]
-        self.ok(1 <= n <= 16, f"nº de estaciones = {n}")
+        self.ok(1 <= n <= 16, f"nro de estaciones = {n}")
         self.note(f"online_bits=0b{g[IR_G_ONLINE - IR_G_MARK]:016b}  "
                   f"alarma_general=[{bits_txt(g[IR_G_ALARM_OR - IR_G_MARK], ALM_BITS)}]")
 
@@ -210,7 +210,7 @@ def main():
     ap.add_argument("--port", type=int, default=502)
     ap.add_argument("--unit", type=int, default=1)
     ap.add_argument("--stations", type=int, default=0,
-                    help="nº de estaciones a revisar (0 = leerlo de IR 2001)")
+                    help="nro de estaciones a revisar (0 = leerlo de IR 2001)")
     ap.add_argument("--write", action="store_true",
                     help="ejecuta pruebas de escritura (silenciar + aplicar escala con los mismos valores)")
     ap.add_argument("--station", type=int, default=0, help="estacion para las pruebas de escritura")
