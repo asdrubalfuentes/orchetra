@@ -46,22 +46,44 @@ Zonas de VM:
 
 ### Cómo entra el MAPA A al LOGO!  (confirmado: LOGO! cliente Modbus)
 
+> **Direccionamiento (importante).** El gateway sirve los registros **0-based**
+> (dirección de PDU: `AI1` del nodo 0 = registro `0` en el cable). **LOGO! Soft
+> Comfort es 1-based**: en su diálogo hay que poner `registro_LOGO = registro_gateway + 1`.
+> Verificado en campo: donde la tabla dice "registro 0", en el LOGO! se escribe **1**.
+
 En LSC V9, *Instrucciones → Network Input → Modbus*, **por cada estación** `s`:
 
 | Parámetro | Valor |
 |---|---|
-| Dispositivo remoto | IP del gateway `nodeIO_master` (`192.168.1.241`), puerto `502`, Unit ID `1` |
-| Función | **FC04** (leer Input Registers) |
-| Dirección de inicio | `slot·16` (estación 0 → 0, estación 1 → 16) |
-| Cantidad | 7 registros (offsets 0..6: `AI1, AI2, AI3, AI4, DIbits, relés, enlace`); o 11 si quieres RSSI/edad/addr |
+| Dispositivo remoto | IP **fija** del gateway `nodeIO_master`, puerto `502`, Unit ID `1` |
+| Función | **FC04 — Read Input Registers** (el gateway **no tiene Holding Registers**; con FC03 no lee nada) |
+| Dirección de inicio (en el LOGO!, 1-based) | `slot·16 + 1` → estación 0 → **1**, estación 1 → **17** |
+| Cantidad | 11 (cubre offsets 0..10 del bloque de nodo) |
 | Destino | `NAI`/`VW` de la zona de ENTRADA (§2.1) |
 | Periodo de sondeo | 500–1000 ms |
 
+Registro por registro (estación 0; para la 1 sumar 16):
+
+| Campo | Registro gateway (cable) | **Registro en el LOGO!** |
+|---|---|---|
+| AI1 = nivel raw | 0 | **1** |
+| AI2 = caudal raw | 1 | **2** |
+| DI bitfield (b0 presostato, b1 volt, b2 tamper, b3 DI4) | 4 | **5** |
+| enlace (0/1) | 6 | **7** |
+| RSSI (int16) | 7 | **8** |
+| edad (s) | 8 | **9** |
+| dirección LoRa | 9 | **10** |
+
+Bloque **global** del MAPA A: marca `0x0203` en registro `900` (cable) → **`901`** en el LOGO!.
+
 **Escritura de la sirena de vuelta al nodo:** *Network Output → Modbus*, **FC05**
-(escribir 1 coil), dispositivo = el mismo gateway, dirección `slot·16 + 0`
-(coil RO1 = sirena), valor = `sirena[s]` (§6).
-Si tu V9 no permite *Network Output* Modbus, cablea la sirena a un **`Q` local**
-del LOGO! como alternativa.
+(escribir 1 coil), dispositivo = el mismo gateway, coil `slot·16 + 0` (cable) →
+**`slot·16 + 1`** en el LOGO!, valor = `sirena[s]` (§6).
+Si tu V9 no permite *Network Output* Modbus, cablea la sirena a un **`Q` local**.
+
+> El gateway obtiene la IP por DHCP. Fíjala (portal → *WiFi de planta (STA)* →
+> *IP fija*, o reserva en el router) para que el LOGO! no pierda el enlace al
+> renovarse el DHCP.
 
 ---
 
