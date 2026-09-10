@@ -163,7 +163,8 @@ Estaciones: **`s = 0..N-1`**, hoy `N = 2`.
 | `hb+11` | Antigüedad del dato | uint16 | s desde la última respuesta del nodo |
 | `hb+12` | Vínculo | uint16 | dirección LoRa / slot del nodo ligado a esta estación |
 | `hb+13` | Contador de fallos de lectura | uint16 | acumulado desde el arranque |
-| `hb+14..19` | reserva | uint16 | 0 |
+| `hb+14` | Alarmas latcheadas / sin reconocer (bitfield) | uint16 | mismos bits que `hb+9`. Se ponen en flanco y **se mantienen** hasta un ACK (`cb+5`) con la causa ya despejada. El HMI las pinta como "pendientes de reconocer". |
+| `hb+15..19` | reserva | uint16 | 0 |
 | `hb+20` | Nivel — raw_min ("cero") | uint16 | cuentas ADC |
 | `hb+21` | Nivel — raw_max ("span") | uint16 | cuentas ADC |
 | `hb+22` | Nivel — eng_min | int16 | ×100 |
@@ -209,7 +210,8 @@ escribir. El LOGO! real y el PLC-SIM deben interpretarlas igual.
 | `cb+2` | Silenciar alarma | **pulso** (auto-limpia): silencia la sirena hasta la próxima alarma nueva |
 | `cb+3` | Reset acumulado del día | **pulso**, protegido (ver nota) |
 | `cb+4` | Reset acumulado del mes | **pulso**, protegido |
-| `cb+5..7` | reserva | |
+| `cb+5` | Reconocer / resetear alarmas | **pulso** (auto-limpia): borra los bits de `hb+14` cuya causa ya no está presente. No silencia (eso es `cb+2`) ni afecta a alarmas aún activas. |
+| `cb+6..7` | reserva | |
 | `cb+8` | Aplicar bloque de escalado | **pulso**: el LOGO! toma `hb+20..31`, valida, persiste y actualiza `hb+31` |
 | `cb+9..15` | reserva | |
 
@@ -235,6 +237,11 @@ escribir. El LOGO! real y el PLC-SIM deben interpretarlas igual.
 | 9 | Config de escala inválida | raw_max ≤ raw_min, o eng_max = eng_min |
 | 10 | Sobre-rango de instrumento | crudo fuera de [raw_min, raw_max] con margen |
 | 11..15 | reserva | |
+
+> **Latcheo (`hb+14`).** Por defecto latchean **bit 2 (marcha en seco)** y **bit 6
+> (tamper / tapa abierta)**: una vez despejada la causa siguen marcadas en `hb+14`
+> hasta que llega el pulso `cb+5`. El resto de bits son de nivel (se borran al
+> desaparecer la causa). La máscara de latcheo es un parámetro del LOGO! / PLC-SIM.
 
 ### 4.5 Bloque global — Holding Registers (FC03), base `96`
 
@@ -318,3 +325,4 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 |---|---|---|
 | 1 | 2026-09-02 | Versión inicial. Mapa A congelado desde `nodeIO_master/src/modbus_gw.*`. Mapa B nuevo: 2 estaciones, señales Nivel/Caudal + presostato/voltaje/tamper + sirena, escalado en `hb+20..31`, comandos en coils `cb+0..8`, global en `IR 2000..2009`. |
 | 2 | 2026-09-03 | **Perfil LOGO! 9.** Bloque global movido de `IR 2000..2009` (FC04) a `HR 96..107` (FC03) — cabe en la VM del LOGO!. Discrete Inputs FC02 (§4.2) pasan a **opcionales** (sus bits ya están en `HR_STATUS`). Sin cambios en estaciones, escalado ni comandos. Migrados: `plc_sim.py`, `miHMI`, `tools/mapb_check.py`. |
+| — | 2026-09-09 | *Adición compatible (no sube `CONTRACT_VERSION`, ocupa reservas):* `cb+5` = ACK/reset de alarmas · `hb+14` = bitfield de alarmas latcheadas. Latcheo por defecto: marcha en seco + tamper. Receta de construcción del programa del LOGO!: [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md). |

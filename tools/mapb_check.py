@@ -26,11 +26,13 @@ HR_LEVEL, HR_FLOW, HR_LEVEL_RAW, HR_FLOW_RAW = 0, 1, 2, 3
 HR_DAY_W0, HR_DAY_W1, HR_MON_W0, HR_MON_W1   = 4, 5, 6, 7
 HR_STATUS, HR_ALARMS, HR_RSSI, HR_AGE        = 8, 9, 10, 11
 HR_LINK_ADDR, HR_RDERR                       = 12, 13
+HR_ALARMS_LATCHED = 14   # hb+14: alarmas latcheadas / sin reconocer (adicion compatible)
 HR_SCALE_BASE = 20   # +20..+31: lvl(rmin,rmax,emin,emax) flw(rmin,rmax,emin,emax) u_lvl u_flw filt stamp
 
 # --- coils / discrete inputs ---
 CO_SIREN_MANUAL, CO_SIREN_AUTO, CO_SILENCE = 0, 1, 2
 CO_RESET_DAY, CO_RESET_MONTH               = 3, 4
+CO_ACK_ALARMS                              = 5    # pulso: reconocer hb+14
 CO_APPLY_SCALE, CO_ARM_RESET               = 8, 9
 
 DI_PRESOSTATO, DI_VOLT_LOCAL, DI_TAMPER, DI_SPARE4 = 0, 1, 2, 3
@@ -148,6 +150,7 @@ class Checker:
                   f"edad={hr[HR_AGE]} s  addr={hr[HR_LINK_ADDR]}  rderr={hr[HR_RDERR]}")
         self.note(f"STATUS=[{bits_txt(st, ST_BITS)}]")
         self.note(f"ALARMS=[{bits_txt(alm, ALM_BITS)}]")
+        self.note(f"LATCHED (hb+14)=[{bits_txt(hr[HR_ALARMS_LATCHED], ALM_BITS)}]")
 
         # coherencia DI <-> HR_STATUS  (FC02 es opcional desde v2)
         if di is None:
@@ -186,6 +189,13 @@ class Checker:
         c = self.co(base_co, 16)
         self.ok(c is not None and not c[CO_SILENCE],
                 "coil 'silenciar' (cb+2) se auto-limpia tras el pulso")
+
+        # 1b) coil de reconocer alarmas (cb+5) se auto-limpia
+        self.c.write_coil(base_co + CO_ACK_ALARMS, True, slave=self.u)
+        time.sleep(1.5)
+        c = self.co(base_co, 16)
+        self.ok(c is not None and not c[CO_ACK_ALARMS],
+                "coil 'reconocer alarmas' (cb+5) se auto-limpia tras el pulso")
 
         # 2) aplicar el bloque de escala (mismos valores) cambia el sello
         hr = self.hr(s * HR_STRIDE + HR_SCALE_BASE, 12)

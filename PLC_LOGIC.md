@@ -132,6 +132,7 @@ Por estación `s`, base `b = s·32` (HR PDU) ↔ `VW(2·b)`:
 | `b+11` | Edad del dato | uint16 | eco |
 | `b+12` | Vínculo (dir. LoRa) | uint16 | eco |
 | `b+13` | Contador de fallos de lectura | uint16 | opcional |
+| `b+14` | Alarmas latcheadas (bitfield) | uint16 | flanco + hold hasta ACK (`cb+5`); ver §5 |
 | `b+20` | Nivel raw_min ("cero") | uint16 | **lo escribe el HMI** |
 | `b+21` | Nivel raw_max ("span") | uint16 | " |
 | `b+22` | Nivel eng_min ×100 | int16 | " |
@@ -169,6 +170,7 @@ Los coils Modbus del LOGO! se mapean a marcas `M` que el programa lee.
 | `s·16 + 2` | Silenciar (pulso) | el LOGO! lo auto-limpia |
 | `s·16 + 3` | Reset acumulado del día (pulso) | exige `cb+9` armado |
 | `s·16 + 4` | Reset acumulado del mes (pulso) | exige `cb+9` armado |
+| `s·16 + 5` | Reconocer / resetear alarmas (pulso) | borra `HR b+14` con la causa despejada |
 | `s·16 + 8` | Aplicar bloque de escala (pulso) | el LOGO! valida `HR b+20..31`, persiste y sube `HR b+31` |
 | `s·16 + 9` | Armar reset | habilita `cb+3`/`cb+4` |
 
@@ -344,6 +346,20 @@ B[s].alarmas := al
   salida digital a un bit de VW** (`VWx.0 … VWx.10`) en el diálogo de mapeo de
   parámetros / VM. No hace falta un bloque "encoder".
 - **OR** de los 11 → bit 6 de `HR_STATUS` (`en alarma`) y entra al `HR 99` global.
+
+### Latcheo y reconocimiento (`HR b+14`, coil `cb+5`)
+
+```
+FOR cada bit b EN MASCARA_LATCH:            // por defecto: LEVEL_LOLO, TAMPER
+   IF flanco_subida(al.b) THEN latch[s].b := TRUE END_IF
+   IF NOT al.b AND pulso(cb[s].ACK) THEN latch[s].b := FALSE END_IF
+B[s].latched := latch[s]                    // -> HR b+14
+```
+
+FBD: por cada bit latcheable, un **RS flip-flop** (Set = alarma activa, Reset =
+`ACK AND NOT alarma`). Empaqueta las salidas en `VW(b+14)` igual que `HR b+9`.
+El HMI resta `hb+14` de la sirena silenciada: una alarma latcheada no vuelve a
+sonar sola, pero sigue visible hasta el ACK.
 
 ---
 
