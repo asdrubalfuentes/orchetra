@@ -193,9 +193,14 @@ mantenimiento*.
    boot + `otaSsid`/`otaPass` en `node_config` (magic 106) y en el portal +
    `release.yml` + `CHANGELOG.md`. Compila (Flash 30 %). **Falta:** push + tag
    `v1.3.0`; configurar la WiFi de mantenimiento en cada nodo antes de instalar.
-5. ⏳ **`miHMI` (§5.2):** pendiente — módulo + botón en *Configuración* + chequeo
-   en boot + `release.yml`. (El HMI no va al campo sin acceso, hay menos prisa.)
-6. ⏳ **Gestión de flota:** panel que liste qué nodo está en qué versión;
+5. ✅ **`miHMI` (§5.2):** `src/net/ota_update.{h,cpp}` + `src/net/ota_hmi.{h,cpp}`
+   (progreso con TFT_eSPI a pantalla completa, no compite con LVGL). Botón
+   *Buscar actualización* en *Configuración* (tras PIN) + chequeo silencioso cada
+   6 h. `APP_VERSION` es el canal OTA (`FW_VERSION_OVERRIDE` del CI).
+   `platformio.ini` con `${sysenv.EXTRA_BUILD_FLAGS}`, `release.yml`,
+   `CHANGELOG.md`. Compila (Flash 73.6 % del slot de 1.875 MB). **Falta:** push +
+   tag `v0.4.0`.
+6. ⏳ **Gestión de flota:** panel que liste qué equipo está en qué versión;
    releases canary antes del rollout completo.
 
 > **Regla de campo:** el **último flasheo por USB** de cada equipo debe llevar ya
