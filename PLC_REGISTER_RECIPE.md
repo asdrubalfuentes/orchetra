@@ -247,8 +247,9 @@ VD500 += (VW2/100)*k       ; VD8  = REAL_TO_DINT(VD500*10)     // día
 VD504 += (VW2/100)*k       ; VD12 = REAL_TO_DINT(VD504*10)     // mes
 reset con medianoche / fin de mes / (M4·M10) / (M5·M10)
 
-// --- alarmas (§5 PLC_LOGIC) ---
+// --- alarmas (PLC_LOGIC.md §5; umbrales en §7 de este doc) ---
 VW18 = arbol_de_alarmas(niv, cau, di, link, age, scale_bad, overrange)
+// latcheo: RS por bit  (Set = bit activo ; Reset = M6 AND NOT bit activo). PLC_LOGIC.md §5
 VW28 = latch(VW18, MASCARA_LATCH={LEVEL_LOLO,TAMPER}, ACK=M6)
 
 // --- estado ---
@@ -263,15 +264,60 @@ Q_local = sirena ; NetOut coil = sirena
 if pulso(M9) and escala_valida: VW62 = (VW62+1) & 0xFFFF ; reset VD516/VD520
 ```
 
-Bloque global (§7 PLC_LOGIC): `VW192=2817 VW194=2 VW206=1 VW208=1 VW210=2`,
-`VW196` de enlaces, `VW198 = VW18 OR VW58`… (ojo: alarmas est.1 están en `VW82`),
-`VW200`/`VD202` cuentan con el pulso de 1 Hz.
-
-> **Corrección:** alarma general `HR99` = `VW18 OR VW82` (activas de est.0 y est.1).
+Bloque global (`PLC_LOGIC.md §7`):
+- constantes: `VW192 = 2817` · `VW194 = 2` · `VW206 = 1` · `VW208 = 1` · `VW210 = 2`
+- `VW196` = enlaces (`bit0` est.0, `bit1` est.1)
+- `VW198` = **`VW18 OR VW82`** (alarmas activas de est.0 `HR9` OR est.1 `HR41`)
+- `VW200` (heartbeat) y `VD202` (uptime, s) cuentan con el pulso de 1 Hz
 
 ---
 
-## 7. Checklist de construcción en LSC V9
+## 7. Parámetros por defecto — igualar al PLC-SIM
+
+El contrato exige **acople seguro**: el LOGO! real y el PLC-SIM se comportan
+igual. Estos son los valores del `modbusMaster/plc_sim.py` (`_default_station`);
+ajústalos en puesta en marcha, pero arranca con ellos.
+
+### Escalado (`HR b+20..31`) — también en `REGISTER_MAP.md §5`
+
+| Parámetro | Nivel | Caudal |
+|---|---|---|
+| `raw_min` / `raw_max` | 800 / 4000 | 800 / 4000 |
+| `eng_min` / `eng_max` (×100) | 0 / 10000 (0…100,00) | 0 / 5000 (0…50,00) |
+| unidad | 0 (%) | 0 (L/s) |
+| filtro (EMA) | 20 | 10 |
+
+### Umbrales de alarma (por estación)
+
+| Alarma | Condición | Umbral / retardo por defecto |
+|---|---|---|
+| `LEVEL_HI` (bit 0) | `nivel_x100 ≥` | **9000** (90,00) |
+| `LEVEL_LO` (bit 1) | `nivel_x100 ≤` | **1000** (10,00) |
+| `LEVEL_LOLO` (bit 2) | `nivel_x100 ≤` | **500** (5,00) |
+| `NO_FLOW` (bit 3) | `presostato AND caudal_x100 ≤ eps` sostenido | eps = **20** · **10 s** |
+| `PRESS_FAIL` (bit 4) | `volt_local AND NOT presostato` sostenido | **15 s** |
+| `VOLT_LOSS` (bit 5) | `NOT volt_local` | inmediato |
+| `TAMPER` (bit 6) | `tamper` | inmediato |
+| `LORA_LOSS` (bit 7) | `NOT enlace` sostenido | **20 s** |
+| `STALE` (bit 8) | `edad > ` | **15 s** |
+| `SCALE_BAD` (bit 9) | `raw_max ≤ raw_min` o `eng_max = eng_min` | — |
+| `OVERRANGE` (bit 10) | `raw` fuera de `[raw_min, raw_max]` con margen | margen = **2 %** del span |
+
+### Máscaras
+
+| Nombre | Valor por defecto | Uso |
+|---|---|---|
+| Sirena | **cualquier alarma** (`siren_on_any_alarm = True`) | si se pone selectivo: `LEVEL_HI \| LEVEL_LOLO \| NO_FLOW \| PRESS_FAIL \| VOLT_LOSS \| TAMPER \| LORA_LOSS` |
+| Latcheo (`HR b+14`) | `LEVEL_LOLO \| TAMPER` | bits que se mantienen hasta `cb+5` (ACK) con la causa despejada |
+
+### Totalizador — factor `k` (caudal → m³/s) según unidad (`HR b+29`)
+
+`0` L/s → `1/1000` · `1` m³/h → `1/3600` · `2` L/min → `1/60000` ·
+`3` GPM → `3.785411784/60000`
+
+---
+
+## 8. Checklist de construcción en LSC V9
 
 - [ ] Proyecto nuevo con el BM del LOGO! 9; IP fija = la que puso el HMI en `PLC_HOST`.
 - [ ] Propiedades → Comunicación → **Modbus (servidor)** activado. Verifica en el
@@ -284,20 +330,20 @@ Bloque global (§7 PLC_LOGIC): `VW192=2817 VW194=2 VW206=1 VW208=1 VW210=2`,
       base VW, base M, umbrales, tiempos TON).
 - [ ] Bloque **global** §1.3 + pulso 1 Hz (reloj asíncrono) para heartbeat/uptime
       y para el totalizador.
-- [ ] Parámetros: umbrales de nivel (alto/bajo/muy bajo), `T_noflow=10s`,
-      `T_pressfail=15s`, `T_loraloss=20s`, `T_stale=15s`, `MARGEN=2%`,
-      máscara de sirena, máscara de latcheo `{LEVEL_LOLO, TAMPER}`.
+- [ ] **Parámetros** = los de **§7** (escala, umbrales de alarma, retardos TON,
+      `MARGEN 2 %`, máscara de sirena, máscara de latcheo `{LEVEL_LOLO, TAMPER}`,
+      factor `k` del totalizador). Deben coincidir con el PLC-SIM.
 - [ ] **Simular** en LSC (emulador con red): escala, alarmas, latcheo+ACK, sirena,
       totalizador y reset.
 - [ ] **Descargar** por Ethernet.
 - [ ] Verificar:
-      `python ORCHESTRATION/tools/mapb_check.py --host <IP_LOGO> --port 502`
-      → **0 FAIL**, `origen = LOGO! real`, `CONTRACT_VERSION = 2`, heartbeat avanza.
-- [ ] Con `--write`: silenciar auto-limpia, aplicar escala cambia el sello.
+      `python ORCHESTRATION/tools/mapb_check.py --host <IP_LOGO> --port 502 --write`
+      → **0 FAIL**, `origen = LOGO! real`, `CONTRACT_VERSION = 2`, heartbeat avanza,
+      `cb+2` (silenciar) y `cb+5` (ACK) se auto-limpian, aplicar escala cambia el sello.
 
 ---
 
-## 8. Orden recomendado de puesta en obra (incremental)
+## 9. Orden recomendado de puesta en obra (incremental)
 
 1. **Global**: `VW192/194/206/208/210` constantes + heartbeat `VW200`. Descarga →
    `mapb_check` debe ver marca y versión OK y latido avanzando.

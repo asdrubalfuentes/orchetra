@@ -436,8 +436,9 @@ constantes o un **OR** de bits mapeado a VW.
 4. **Coloca los bloques** por estación siguiendo §3–§7. Usa **UDF** (bloque de
    usuario) para "una estación" y **instáncialo 2 veces** — ahorra la mitad del
    trabajo y de los 800 bloques.
-5. **Parámetros**: umbrales de alarma, tiempos `TON`, `MARGEN_PCT`, máscara de
-   sirena, valores por defecto del bloque de escala.
+5. **Parámetros**: los de [`PLC_REGISTER_RECIPE.md §7`](PLC_REGISTER_RECIPE.md)
+   (umbrales de alarma, tiempos `TON`, `MARGEN_PCT`, máscara de sirena y de
+   latcheo, escala por defecto, factor `k`) — deben coincidir con el PLC-SIM.
 6. **Textos de aviso** (opcional): mensajes en la pantalla del BM por alarma.
 7. **Simulación** (LSC V9 trae emulador con comunicación de red): comprueba
    escalado, alarmas, sirena y totalizador antes de descargar.
@@ -454,8 +455,10 @@ constantes o un **OR** de bits mapeado a VW.
 | `REGISTER_MAP.md` | `CONTRACT_VERSION 2`: bloque global a `HR 96..105`; FC02 opcional | **hecho** |
 | `modbusMaster/plc_sim.py` | global a `HR 96`; `contract` = 2 | **hecho** (reinicia `python app.py` para cargarlo) |
 | `miHMI` | leer el global por `HR 96`; `CONTRACT_VERSION 2` | **hecho** — recompilar/flashear |
-| `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2` | **hecho** (verificado 0 FAIL) |
-| `nodeIO_master` | ninguno | **no necesario** — confirmado que el LOGO! 9 hace de cliente Modbus y sondea el gateway directo |
+| `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2`; imprime `hb+14` y verifica que `cb+5` (ACK) se auto-limpia | **hecho** (verificado 0 FAIL con `--write`) |
+| `REGISTER_MAP.md` / `plc_sim.py` / `miHMI` / `mapb_check.py` | adición compatible `cb+5` (ACK de alarmas) + `hb+14` (alarmas latcheadas); latcheo por defecto `{LEVEL_LOLO, TAMPER}` | **hecho** — no sube `CONTRACT_VERSION` |
+| [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) | hoja de construcción literal (VW/VD/M ↔ Modbus) + §7 parámetros por defecto del PLC-SIM | **hecho** |
+| `nodeIO_master` | ninguno en el MAPA A (el OTA por comando LoRa no toca el Modbus) | **no necesario** — el LOGO! 9 hace de cliente Modbus y sondea el gateway directo |
 
 ---
 
