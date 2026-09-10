@@ -6,7 +6,11 @@ escribibles. El puente vive en el **`nodeIO_master`** (gateway) — ver
 [por qué en el análisis de arquitectura] al final.
 
 - Contrato Modbus del puente: [`REGISTER_MAP.md §7 — MAPA G`](REGISTER_MAP.md).
-- Estado: **especificación** (firmware por implementar).
+- Estado: **firmware del gateway implementado** (`nodeIO_master` ≥ `1.4.0`:
+  `modbus_gw` MAPA G + `mqtt_bridge` + SNTP + fieldset en el portal). Falta el
+  lado **LOGO! (FBD)** — bloques Network I/O de
+  [`PLC_REGISTER_RECIPE.md §10`](PLC_REGISTER_RECIPE.md) — y, opcional, el
+  `hmi/state` del HMI. `station/<s>/scale/set` desde MQTT queda para una 2ª fase.
 
 ---
 
@@ -229,16 +233,18 @@ Ver [`PLC_REGISTER_RECIPE.md §10`](PLC_REGISTER_RECIPE.md):
 
 ## 9. Plan de implementación
 
-1. **Contrato** (este doc + `REGISTER_MAP.md §7` + `PLC_REGISTER_RECIPE.md §10`) — *hecho*.
-2. **Gateway – espejo y coils** (`modbus_gw`): añadir HR + coils `1000+`,
-   auto-limpieza. Probar con `mb_dump`/`mapb_check` apuntando al gateway.
-3. **Gateway – SNTP + MQTT publicador**: `gw/state`, `plant`, `station/*/data`,
-   `nodes`. Verificar en un cliente MQTT (MQTT Explorer / `mosquitto_sub`).
-4. **Gateway – suscriptor de comandos** + `ack` + salvaguardas.
-5. **LOGO! – Network Output** del espejo → el gateway ya tiene MAPA B local.
-6. **LOGO! – Network Input** de G.2 + `OR` con `cb+*`.
-7. **HMI – `hmi/state`** (opcional).
-8. **Fase B**: HMI y SCADA leen del gateway; el LOGO! se queda con 1 conexión.
+1. ✅ **Contrato** (este doc + `REGISTER_MAP.md §7` + `PLC_REGISTER_RECIPE.md §10`).
+2. ✅ **Gateway – espejo y coils** (`modbus_gw`): HR `0..105` + coils `1000+` con
+   auto-limpieza de pulsos.
+3. ✅ **Gateway – SNTP + publicadores** (`mqtt_bridge`): `gw/state`, `nodes`,
+   `plant`, `station/*/data`, `node/*/raw`.
+4. ✅ **Gateway – suscriptor** de `station/+/cmd`, `node/+/relay`, `gw/cmd` +
+   `ack` + salvaguardas + fieldset en el portal.
+5. ⏳ **LOGO! – Network Output** del espejo → el gateway tendría MAPA B local.
+6. ⏳ **LOGO! – Network Input** de G.2 + `OR` con `cb+*`.
+7. ⏳ **HMI – `hmi/state`** (opcional).
+8. ⏳ **`scale/set` desde MQTT** (2ª fase; hoy responde `ack ok:false`).
+9. ⏳ **Fase B**: HMI y SCADA leen del gateway; el LOGO! se queda con 1 conexión.
 
 ---
 

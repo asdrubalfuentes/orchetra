@@ -314,9 +314,10 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 ## 7. MAPA G — puente del gateway hacia MQTT
 
 Para publicar toda la orquestación por **MQTT** sin cargar más al LOGO! (ver
-[`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)), el **`nodeIO_master`** gana dos bloques
-nuevos en su servidor Modbus TCP :502, **en direcciones libres** (no tocan MAPA A
-ni MAPA B). El LOGO! los usa por su **única** conexión Modbus al gateway:
+[`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)), el **`nodeIO_master`** (≥ `1.4.0`) gana dos
+bloques nuevos en su servidor Modbus TCP :502, **en direcciones libres** (no
+tocan MAPA A ni MAPA B). El LOGO! los usa por su **única** conexión Modbus al
+gateway:
 
 - **G.1 — Espejo de MAPA B (Holding Registers, FC03/FC16).** El LOGO! *escribe*
   aquí su MAPA B con **los mismos offsets que la §4**: estación `s` → `HR s*32 +

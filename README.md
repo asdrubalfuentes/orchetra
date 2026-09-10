@@ -59,10 +59,11 @@ repos; este define **el contrato que los une** y la documentación que los cruza
   `nodeIO` (por comando LoRa), `nodeIO_master` y `miHMI` (autoactualización).
   `LoraSenderAysafi` es la referencia (fix de redirects aplicado). Faltan los
   tags de release.
-- **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)): **spec lista**. El
-  `nodeIO_master` publicará toda la orquestación y aceptará comandos de la nube;
-  el LOGO! espeja MAPA B en el gateway (`REGISTER_MAP.md §7`) sin ganar
-  conexiones. Firmware del gateway y bloques FBD del LOGO! por implementar.
+- **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)): **firmware del gateway
+  hecho** (`nodeIO_master 1.4.0`: MAPA G + `mqtt_bridge` + SNTP + portal). Falta
+  el lado LOGO! (Network Output/Input de `PLC_REGISTER_RECIPE.md §10`). Desde
+  1.4.0 la identidad (tabla de nodos, canal, WiFi, MQTT) sobrevive a los bumps de
+  `CFG_MAGIC` (claves sueltas NVS + espejo LittleFS).
 
 ## Verificador de conformidad
 
