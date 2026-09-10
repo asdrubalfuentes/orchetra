@@ -457,8 +457,9 @@ constantes o un **OR** de bits mapeado a VW.
 | `miHMI` | leer el global por `HR 96`; `CONTRACT_VERSION 2` | **hecho** — recompilar/flashear |
 | `tools/mapb_check.py` | global por `HR`; acepta FC02 ausente; espera `CONTRACT_VERSION 2`; imprime `hb+14` y verifica que `cb+5` (ACK) se auto-limpia | **hecho** (verificado 0 FAIL con `--write`) |
 | `REGISTER_MAP.md` / `plc_sim.py` / `miHMI` / `mapb_check.py` | adición compatible `cb+5` (ACK de alarmas) + `hb+14` (alarmas latcheadas); latcheo por defecto `{LEVEL_LOLO, TAMPER}` | **hecho** — no sube `CONTRACT_VERSION` |
-| [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) | hoja de construcción literal (VW/VD/M ↔ Modbus) + §7 parámetros por defecto del PLC-SIM | **hecho** |
-| `nodeIO_master` | ninguno en el MAPA A (el OTA por comando LoRa no toca el Modbus) | **no necesario** — el LOGO! 9 hace de cliente Modbus y sondea el gateway directo |
+| [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) | hoja de construcción literal (VW/VD/M ↔ Modbus) + §7 parámetros por defecto + §10 puente MQTT | **hecho** |
+| `nodeIO_master` | ninguno en el MAPA A (el OTA por comando LoRa no toca el Modbus) | **no necesario** para el control |
+| **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md) · [`REGISTER_MAP.md §7`](REGISTER_MAP.md)) | el LOGO! espeja MAPA B en el gateway (Network Output FC16) y lee de ahí los comandos de la nube (Network Input FC01), por su conexión Modbus actual. FBD extra en [`PLC_REGISTER_RECIPE.md §10`](PLC_REGISTER_RECIPE.md) | **spec lista; firmware del gateway por hacer** |
 
 ---
 

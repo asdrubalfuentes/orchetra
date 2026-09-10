@@ -311,7 +311,54 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 
 ---
 
-## 7. Versionado del contrato
+## 7. MAPA G — puente del gateway hacia MQTT
+
+Para publicar toda la orquestación por **MQTT** sin cargar más al LOGO! (ver
+[`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)), el **`nodeIO_master`** gana dos bloques
+nuevos en su servidor Modbus TCP :502, **en direcciones libres** (no tocan MAPA A
+ni MAPA B). El LOGO! los usa por su **única** conexión Modbus al gateway:
+
+- **G.1 — Espejo de MAPA B (Holding Registers, FC03/FC16).** El LOGO! *escribe*
+  aquí su MAPA B con **los mismos offsets que la §4**: estación `s` → `HR s*32 +
+  k` (= `hb+k`), bloque global → `HR 96..105`. El firmware del gateway lo *lee*
+  para publicarlo por MQTT; el HMI/SCADA también pueden leerlo aquí en vez de
+  molestar al LOGO!.
+- **G.2 — Comandos desde la nube (Coils, FC01/FC05/FC15), base `1000`.** El
+  firmware del gateway *escribe* aquí lo que llega por MQTT; el LOGO! los *lee*
+  con *Network Input*. Layout por estación `s`, base `1000 + s*16`, **mismos
+  offsets que `cb+*` de la §4.3**:
+
+  | Coil | Comando | Igual que |
+  |---|---|---|
+  | `1000 + s*16 + 0` | Sirena ON manual | `cb+0` |
+  | `+1` | Sirena AUTO | `cb+1` |
+  | `+2` | Silenciar (pulso) | `cb+2` |
+  | `+3` / `+4` | Reset acum. día / mes (pulso, exige `+9`) | `cb+3` / `cb+4` |
+  | `+5` | ACK de alarmas (pulso) | `cb+5` |
+  | `+8` | Aplicar bloque de escala (pulso) | `cb+8` |
+  | `+9` | Armar reset | `cb+9` |
+
+  Los pulsos los **auto-limpia el firmware del gateway** un ciclo después de
+  reflejarlos (para que el flanco llegue al LOGO! una sola vez).
+
+**Fusión de comandos en el LOGO!.** Hay dos orígenes de mando:
+
+- *Fase A (incremental):* el HMI sigue escribiendo `cb+*` directo en el LOGO!;
+  el LOGO! hace `OR` de `cb+X` (HMI) con el coil de G.2 (MQTT).
+- *Fase B (objetivo):* el HMI también escribe en G.2 del gateway; el LOGO! tiene
+  **un solo origen de mando** (Network Input desde G.2) y pierde esa conexión
+  entrante. Recomendado a futuro.
+
+**Escrituras a nodos desde MQTT** (relés `WR`/`WP`) no usan G.2: el firmware del
+gateway ya tiene esa ruta (coils `i*16 + 0..7` del MAPA A → LoRa) y la reusa.
+
+Esto es una **adición compatible** (direcciones nuevas, no sube
+`CONTRACT_VERSION`). La escala Modbus de los valores es la de la §4; el bridge
+MQTT publica además la versión en ingeniería (float) — detalle en `MQTT_BRIDGE.md`.
+
+---
+
+## 8. Versionado del contrato
 
 - `CONTRACT_VERSION` vive en este documento y se refleja en `HR 105` del Mapa B.
 - Cambios **compatibles** (añadir campos en reservas): no sube la versión, se
@@ -326,3 +373,4 @@ El PLC-SIM lee `MAPA A [i*16 + 0..9]` del gateway, aplica §5 y escribe
 | 1 | 2026-09-02 | Versión inicial. Mapa A congelado desde `nodeIO_master/src/modbus_gw.*`. Mapa B nuevo: 2 estaciones, señales Nivel/Caudal + presostato/voltaje/tamper + sirena, escalado en `hb+20..31`, comandos en coils `cb+0..8`, global en `IR 2000..2009`. |
 | 2 | 2026-09-03 | **Perfil LOGO! 9.** Bloque global movido de `IR 2000..2009` (FC04) a `HR 96..107` (FC03) — cabe en la VM del LOGO!. Discrete Inputs FC02 (§4.2) pasan a **opcionales** (sus bits ya están en `HR_STATUS`). Sin cambios en estaciones, escalado ni comandos. Migrados: `plc_sim.py`, `miHMI`, `tools/mapb_check.py`. |
 | — | 2026-09-09 | *Adición compatible (no sube `CONTRACT_VERSION`, ocupa reservas):* `cb+5` = ACK/reset de alarmas · `hb+14` = bitfield de alarmas latcheadas. Latcheo por defecto: marcha en seco + tamper. Receta de construcción del programa del LOGO!: [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md). |
+| — | 2026-09-10 | *Adición compatible (direcciones nuevas):* **§7 MAPA G** — espejo de MAPA B (`HR`) + comandos desde la nube (`Coils 1000+`) en el servidor del `nodeIO_master`, para el puente MQTT ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)). El LOGO! no gana conexiones. |

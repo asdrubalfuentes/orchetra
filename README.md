@@ -8,16 +8,18 @@ Los otros proyectos (nodo, pasarela, HMI, simulador de PLC) viven en sus propios
 repos; este define **el contrato que los une** y la documentación que los cruza.
 
 ```
-  nodos LoRa (nodeIO)  ──LoRa──►  nodeIO_master  ──Modbus TCP :502 (MAPA A)──►  LOGO! 9 / PLC-SIM
-                                  (LoRa Gateway)                                  │  servidor MAPA B :502
-                                                                                 ▼
-                                                              miHMI  +  SCADA remoto (VPN)
+  nodos LoRa (nodeIO) ─LoRa─►  nodeIO_master ─Modbus TCP :502─►  LOGO! 9 / PLC-SIM
+                               (LoRa Gateway)   · MAPA A (crudo)     · calcula la lógica
+                                     │  ◄── espejo MAPA B + comandos ─┘  (1 conexión, MAPA G)
+                                     ├─ Modbus ─► miHMI  (lee MAPA B)
+                                     └─ MQTT/TLS ─► broker ─► SCADA / dashboards / apps
 ```
 
 - **MAPA A** — lo sirve la pasarela: E/S **cruda** por nodo LoRa (cuentas ADC, bits).
-- **MAPA B** — lo sirve el PLC (o el simulador): magnitudes de **ingeniería** por
-  estación, acumulados, alarmas y la superficie de comandos. Es lo que consumen
-  el HMI y el SCADA.
+- **MAPA B** — lo calcula el PLC (o el simulador): ingeniería por estación,
+  acumulados, alarmas, superficie de comandos. Lo consumen el HMI y el SCADA.
+- **MAPA G** — extensión en el gateway para el **puente MQTT**: el LOGO! espeja
+  MAPA B ahí y lee de ahí los comandos de la nube, por su única conexión Modbus.
 
 ## Documentos
 
@@ -28,6 +30,7 @@ repos; este define **el contrato que los une** y la documentación que los cruza
 | [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) | **Hoja de construcción**: la lista literal de `VW/VD/M` a crear en LSC y con qué registro Modbus habla cada uno (MAPA A que lee, MAPA B que publica, coils de comando), + checklist y orden incremental de puesta en obra. |
 | [`BRINGUP.md`](BRINGUP.md) | Guía de puesta en marcha por fases + checks por salto + problemas frecuentes + migración al LOGO! real. |
 | [`OTA_ROLLOUT.md`](OTA_ROLLOUT.md) | Changelog de despliegue del OTA "GitHub Releases pull" (modelo `LoraSenderAysafi`) a `nodeIO`, `nodeIO_master` y `miHMI` + módulo común [`tools/ota/`](tools/ota/). |
+| [`MQTT_BRIDGE.md`](MQTT_BRIDGE.md) | Puente **MQTT** en el `nodeIO_master`: tópicos, payloads JSON y superficie de comandos desde la nube. El LOGO! espeja MAPA B en el gateway (`REGISTER_MAP.md §7 — MAPA G`); no gana conexiones. |
 | [`tools/mapb_check.py`](tools/mapb_check.py) | Verificador de conformidad de un endpoint MAPA B (el PLC-SIM ahora, el LOGO! después). |
 | [`tools/fake_gateway.py`](tools/fake_gateway.py) | Pasarela LoRa falsa (sirve el MAPA A con escenarios) para probar sin hardware LoRa. |
 | [`tools/ota/`](tools/ota/) | Módulo común de OTA (`ota_update.{h,cpp}`) + plantilla de CI (`release.yml`) para los firmwares. |
@@ -53,8 +56,13 @@ repos; este define **el contrato que los une** y la documentación que los cruza
   pasarela directo). Falta construir el programa FBD siguiendo
   [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) y verificar con `mapb_check`.
 - **OTA "GitHub Releases pull"** ([`OTA_ROLLOUT.md`](OTA_ROLLOUT.md)): aplicado a
-  `nodeIO` (por comando LoRa) y `nodeIO_master` (autoactualización). Pendiente
-  `miHMI`. `LoraSenderAysafi` es la referencia (fix de redirects aplicado).
+  `nodeIO` (por comando LoRa), `nodeIO_master` y `miHMI` (autoactualización).
+  `LoraSenderAysafi` es la referencia (fix de redirects aplicado). Faltan los
+  tags de release.
+- **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)): **spec lista**. El
+  `nodeIO_master` publicará toda la orquestación y aceptará comandos de la nube;
+  el LOGO! espeja MAPA B en el gateway (`REGISTER_MAP.md §7`) sin ganar
+  conexiones. Firmware del gateway y bloques FBD del LOGO! por implementar.
 
 ## Verificador de conformidad
 

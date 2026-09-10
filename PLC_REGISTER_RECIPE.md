@@ -354,3 +354,57 @@ ajústalos en puesta en marcha, pero arranca con ellos.
 5. **Sirena** (`M1/M2/M3` + `cb+5` ACK) y salida al nodo.
 6. **Totalizador** día/mes + `HR98` + resets protegidos (`M4/M5` con `M10`).
 7. **Aplicar escala** (`M9`) + sello.
+8. *(Cuando exista el puente MQTT)* **§10** — espejo de MAPA B al gateway y
+   lectura de los comandos de la nube.
+
+---
+
+## 10. Puente MQTT — bloques Network I/O extra (opcional, [`MQTT_BRIDGE.md`](MQTT_BRIDGE.md))
+
+Para que el `nodeIO_master` publique todo por MQTT sin sondear al LOGO!, el LOGO!
+**espeja su MAPA B en el gateway** y **lee de ahí los comandos de la nube**. Todo
+por la conexión Modbus que ya tiene con el gateway — **cero conexiones nuevas**.
+Direcciones: [`REGISTER_MAP.md §7`](REGISTER_MAP.md).
+
+### 10.1 Network Output → Modbus  (escribe el espejo de MAPA B)
+
+Dispositivo = gateway `nodeIO_master` (IP fija, `:502`, Unit ID `1`),
+**FC16 (Write Multiple Holding Registers)**.
+
+| Bloque | Origen (VW) | Destino gateway (HR, **1-based en LSC**) | Cant. |
+|---|---|---|---|
+| NO-B0 | `VW0`   | `1`  (`HR 0`)  | 32 |
+| NO-B1 | `VW64`  | `33` (`HR 32`) | 32 |
+| NO-BG | `VW192` | `97` (`HR 96`) | 10 |
+
+Periodo 500–1000 ms. Si tu V9 no permite bloques de 32, parte en 2×16. El gateway
+lee estos `HR` para publicar `station/<s>/data`, `plant` y `scale`.
+
+### 10.2 Network Input → Modbus  (lee los comandos de la nube)
+
+Mismo dispositivo, **FC01 (Read Coils)**. Por estación `s`, base gateway
+`1000 + s*16` → LSC 1-based `1001 + s*16`:
+
+| Bloque | Coil gateway (PDU) | Dir. en LSC | Cant. | Destino |
+|---|---|---|---|---|
+| NI-C0 | `1000` | **1001** | 10 | `M` de comando nube, est. 0 |
+| NI-C1 | `1016` | **1017** | 10 | `M` de comando nube, est. 1 |
+
+Offsets dentro del bloque = los de `cb+*` (§4): `+0` sirena manual · `+1` AUTO ·
+`+2` silenciar · `+3/4` reset día/mes · `+5` ACK · `+8` aplicar escala · `+9`
+armar. El gateway auto-limpia los pulsos.
+
+### 10.3 Fusión con los comandos del HMI (Fase A)
+
+El HMI sigue escribiendo `cb+*` directo en el LOGO!. En el FBD, cada mando =
+**`OR`** de las dos fuentes:
+
+```
+silenciar_efectivo = pulso(cb[s].SILENCE)  OR  pulso(Mnube[s].SILENCE)
+ack_efectivo       = pulso(cb[s].ACK)      OR  pulso(Mnube[s].ACK)
+sirena_auto        = cb[s].SIREN_AUTO       OR  Mnube[s].SIREN_AUTO
+...
+```
+
+*Fase B (a futuro):* el HMI también escribe en los coils `1000+` del gateway; el
+LOGO! deja de exponer `cb+*` para escritura y tiene **un solo origen de mando**.
