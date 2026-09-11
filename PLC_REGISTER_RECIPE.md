@@ -340,6 +340,10 @@ ajústalos en puesta en marcha, pero arranca con ellos.
       `python ORCHESTRATION/tools/mapb_check.py --host <IP_LOGO> --port 502 --write`
       → **0 FAIL**, `origen = LOGO! real`, `CONTRACT_VERSION = 2`, heartbeat avanza,
       `cb+2` (silenciar) y `cb+5` (ACK) se auto-limpian, aplicar escala cambia el sello.
+- [ ] *(Cuando el puente MQTT esté habilitado)* **§10**: Network Output ×2/3
+      (NO-B0/B1/BG) + Network Input ×2 (NI-C0/C1) hacia el **gateway**, `OR` de
+      cada `Mnube` con su `M` homóloga del HMI. Verificar publicando por MQTT y
+      comparando `station/<s>/data` contra `mapb_check` en el mismo instante.
 
 ---
 
@@ -387,22 +391,50 @@ Mismo dispositivo, **FC01 (Read Coils)**. Por estación `s`, base gateway
 
 | Bloque | Coil gateway (PDU) | Dir. en LSC | Cant. | Destino |
 |---|---|---|---|---|
-| NI-C0 | `1000` | **1001** | 10 | `M` de comando nube, est. 0 |
-| NI-C1 | `1016` | **1017** | 10 | `M` de comando nube, est. 1 |
+| NI-C0 | `1000` | **1001** | 10 | `Mnube` comando nube, est. 0 → `M40…M49` |
+| NI-C1 | `1016` | **1017** | 10 | `Mnube` comando nube, est. 1 → `M56…M65` |
 
-Offsets dentro del bloque = los de `cb+*` (§4): `+0` sirena manual · `+1` AUTO ·
-`+2` silenciar · `+3/4` reset día/mes · `+5` ACK · `+8` aplicar escala · `+9`
-armar. El gateway auto-limpia los pulsos.
+Offsets dentro del bloque = los de `cb+*` (§4). Marca `M` sugerida (mismo patrón
++16 entre estaciones que usa §4; no choca con `M1…M10` / `M17…M26`):
+
+| Offset coil | Comando | `Mnube` est. 0 | `Mnube` est. 1 |
+|---:|---|---|---|
+| `+0` | Sirena ON manual | `M40` | `M56` |
+| `+1` | Sirena AUTO | `M41` | `M57` |
+| `+2` | Silenciar (pulso) | `M42` | `M58` |
+| `+3` | Reset día (pulso) | `M43` | `M59` |
+| `+4` | Reset mes (pulso) | `M44` | `M60` |
+| `+5` | ACK (pulso) | `M45` | `M61` |
+| `+6`/`+7` | *(sin uso en `cb+*`)* | — | — |
+| `+8` | Aplicar escala (pulso) | `M48` | `M64` |
+| `+9` | Armar reset | `M49` | `M65` |
+
+El gateway auto-limpia los pulsos (`+2/+3/+4/+5/+8`) a los 1,5 s de escribirlos
+en `1`; no hace falta que el LOGO! los borre.
 
 ### 10.3 Fusión con los comandos del HMI (Fase A)
 
-El HMI sigue escribiendo `cb+*` directo en el LOGO!. En el FBD, cada mando =
-**`OR`** de las dos fuentes:
+El HMI sigue escribiendo `cb+*` directo en el LOGO! (§4: `M1…M10` / `M17…M26`).
+En el FBD, cada mando efectivo = **`OR`** de la `M` del HMI con su `Mnube`
+homóloga — inserta el `OR` **entre** la `M` y el bloque que hoy la consume
+(detector de flanco para los pulsos, entrada directa para AUTO/armar):
+
+| Mando | `OR` de | Alimenta a (igual que hoy) |
+|---|---|---|
+| Sirena manual | `M1 OR M40` (· `M17 OR M56`) | selector `sirena = AUTO ? … : M1` (§6 PLC_LOGIC) |
+| Sirena AUTO | `M2 OR M41` (· `M18 OR M57`) | selector AUTO/MANUAL |
+| Silenciar | `M3 OR M42` (· `M19 OR M58`) | `Set` del RS `SIL` |
+| Reset día | `M4 OR M43` (· `M20 OR M59`) | `AND M10` → reset `VD500`/`VD508` |
+| Reset mes | `M5 OR M44` (· `M21 OR M60`) | `AND M10` → reset `VD504`/`VD512` |
+| ACK | `M6 OR M45` (· `M22 OR M61`) | `Reset` del latcheo `VW28`/`VW92` |
+| Aplicar escala | `M9 OR M48` (· `M25 OR M64`) | flanco → `VW62`/`VW126` +1, reset filtros |
+| Armar | `M10 OR M49` (· `M26 OR M65`) | habilita los dos resets de arriba |
 
 ```
-silenciar_efectivo = pulso(cb[s].SILENCE)  OR  pulso(Mnube[s].SILENCE)
-ack_efectivo       = pulso(cb[s].ACK)      OR  pulso(Mnube[s].ACK)
-sirena_auto        = cb[s].SIREN_AUTO       OR  Mnube[s].SIREN_AUTO
+silenciar_efectivo = flanco(M3  OR M42)
+ack_efectivo       = flanco(M6  OR M45)
+sirena_auto        = M2  OR M41
+armar              = M10 OR M49
 ...
 ```
 
