@@ -145,6 +145,11 @@ Por estación `s`, base `b = s·32` (HR PDU) ↔ `VW(2·b)`:
 
 Estación 0 → HR `0..31` (VW0..VW62). Estación 1 → HR `32..63` (VW64..VW126).
 
+> **Bitfields (`Estado`, `Alarmas`, `hb+14`, `HR98`):** para mapear un bit a un
+> `VWx` en LOGO!, la dirección de bit correcta es **`V(x+1).n`** para bits
+> `0..7` y **`Vx.(n-8)`** para bits `8..15` — no `Vx.n` a secas. Detalle y
+> ejemplo verificado en campo: **§5 "En FBD, por estación"** más abajo.
+
 ### 2.3 Bloque global — Holding Registers, base `HR 96` (VW192)
 
 | HR | Campo | Valor |
@@ -343,8 +348,16 @@ B[s].alarmas := al
   tiempo correspondiente → bit.
 - Bits 5, 6, 8, 9, 10: directos.
 - Empaquetar los 11 bits en `VW(b+9)`: en LOGO! esto se hace **mapeando cada
-  salida digital a un bit de VW** (`VWx.0 … VWx.10`) en el diálogo de mapeo de
-  parámetros / VM. No hace falta un bloque "encoder".
+  salida digital a un bit de VM** — pero `VWx` son 2 bytes (`x` alto, `x+1`
+  bajo) y el bit-address de LOGO! (`V<byte>.<bit>`) direcciona **byte**, no la
+  palabra completa. **Verificado en campo (2026-09-12): mapear a `Vx.n`
+  escribe el bit en el byte alto → aporta `256·2^n`, no `2^n`.** Regla correcta:
+  - bit `0..7` del valor (`1..128`) → **`V(x+1).n`** (byte bajo)
+  - bit `8..15` del valor (`256..32768`) → **`Vx.(n-8)`** (byte alto)
+
+  Para `HR9`/`VW18` (bits 0-10 de alarma): `LEVEL_HI…LORA_LOSS` (bits 0-7) van a
+  `V19.0…V19.7`; `STALE, SCALE_BAD, OVERRANGE` (bits 8-10) van a `V18.0…V18.2`.
+  No hace falta un bloque "encoder", solo la dirección de bit correcta.
 - **OR** de los 11 → bit 6 de `HR_STATUS` (`en alarma`) y entra al `HR 99` global.
 
 ### Latcheo y reconocimiento (`HR b+14`, coil `cb+5`)
@@ -418,6 +431,10 @@ HR105 := 2                              // CONTRACT_VERSION
 
 FBD: **Up Counter** sobre `HR100` y `uptime` disparado por `P1s`; el resto son
 constantes o un **OR** de bits mapeado a VW.
+
+> `HR98 = VW196`: sus bits `0`/`1` (enlace est.0/est.1) van al **byte bajo**,
+> es decir **`V197.0`** / **`V197.1`** — no `V196.0`/`V196.1` (ver regla de
+> bits en §5 "En FBD, por estación" / verificado en campo 2026-09-12).
 
 ---
 

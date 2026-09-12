@@ -112,8 +112,21 @@ Alarmas:  1 LEVEL_HI · 2 LEVEL_LO · 4 LEVEL_LOLO · 8 NO_FLOW · 16 PRESS_FAIL
           32 VOLT_LOSS · 64 TAMPER · 128 LORA_LOSS · 256 STALE
           512 SCALE_BAD · 1024 OVERRANGE
 ```
-En LOGO! cada bit se consigue mapeando una salida digital a `VWx.0 … VWx.10` en
-el diálogo de parámetros VM (no hace falta bloque "encoder").
+En LOGO! cada bit se consigue mapeando una salida digital a un bit de VM (no
+hace falta bloque "encoder") — **pero `VWx` son 2 bytes** (`x` alto, `x+1`
+bajo) y la dirección de bit de LOGO! (`V<byte>.<bit>`) direcciona el **byte**,
+no la palabra. **Verificado en campo (2026-09-12):** mapear a `Vx.n` escribe el
+bit en el byte alto → aporta `256·2^n` al valor, no `2^n` (así se detectó:
+`LINK_OK` mapeado a `V16.5` dejó `VW16 = 8192` en vez de `32`). Regla correcta:
+
+- bit `0..7` del valor (`1..128`) → **`V(x+1).n`** (byte bajo)
+- bit `8..15` del valor (`256..32768`) → **`Vx.(n-8)`** (byte alto)
+
+Ejemplos con esta tabla: `Estado` completo (todos sus bits `0..7`) → `V(b+9).0
+… V(b+9).7` (recordando que `HR b+8 = VW(2b+16)`, o sea el byte bajo es
+`VW(2b+16)+1`). `Alarmas`: `LEVEL_HI…LORA_LOSS` (bits 0-7) → byte bajo de
+`VW(2b+18)`; `STALE`/`SCALE_BAD`/`OVERRANGE` (bits 8-10) → byte alto (mismo
+`VW`, bits 0-2 de ese byte).
 
 ---
 
