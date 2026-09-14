@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-mapb_check.py  -  Verificador de conformidad del MAPA B (contrato CONTRACT_VERSION 2).
+mapb_check.py  -  Verificador de conformidad del MAPA B (contrato CONTRACT_VERSION 3).
 
 Se conecta por Modbus TCP a un endpoint MAPA B (el PLC-SIM de modbusMaster ahora,
 el LOGO! 9 real despues) y comprueba estructura, coherencia y semantica de
@@ -17,7 +17,7 @@ import time
 
 from pymodbus.client import ModbusTcpClient
 
-CONTRACT_VERSION = 2
+CONTRACT_VERSION = 3
 MAPB_MARK        = 0x0B01
 HR_STRIDE, DI_STRIDE, CO_STRIDE = 32, 16, 16
 
@@ -27,7 +27,8 @@ HR_DAY_W0, HR_DAY_W1, HR_MON_W0, HR_MON_W1   = 4, 5, 6, 7
 HR_STATUS, HR_ALARMS, HR_RSSI, HR_AGE        = 8, 9, 10, 11
 HR_LINK_ADDR, HR_RDERR                       = 12, 13
 HR_ALARMS_LATCHED = 14   # hb+14: alarmas latcheadas / sin reconocer (adicion compatible)
-HR_SCALE_BASE = 20   # +20..+31: lvl(rmin,rmax,emin,emax) flw(rmin,rmax,emin,emax) u_lvl u_flw filt stamp
+HR_SCALE_BASE = 20   # +20..+31: OBSOLETO desde v3 (la escala vive en el portal del nodo remoto,
+                     # ver nodeIO ChannelCfg) -- se deja el offset solo para no romper el mapa
 
 # --- coils / discrete inputs ---
 CO_SIREN_MANUAL, CO_SIREN_AUTO, CO_SILENCE = 0, 1, 2
@@ -141,8 +142,8 @@ class Checker:
 
         level = hr[HR_LEVEL] / 100.0
         flow  = hr[HR_FLOW] / 100.0
-        day   = u32_hi_first(hr[HR_DAY_W0], hr[HR_DAY_W1]) / 10.0
-        mon   = u32_hi_first(hr[HR_MON_W0], hr[HR_MON_W1]) / 10.0
+        day   = u32_hi_first(hr[HR_DAY_W0], hr[HR_DAY_W1]) / 1000.0
+        mon   = u32_hi_first(hr[HR_MON_W0], hr[HR_MON_W1]) / 1000.0
         st    = hr[HR_STATUS]
         alm   = hr[HR_ALARMS]
         self.note(f"Nivel={level:.2f}  Caudal={flow:.2f}  crudos=({hr[HR_LEVEL_RAW]},{hr[HR_FLOW_RAW]})")
@@ -162,21 +163,12 @@ class Checker:
             for dbit, sbit, nm in pairs:
                 self.ok(bool(di[dbit]) == bool(st & sbit), f"DI[{dbit}] coincide con STATUS.{nm}")
 
-        # bloque de escala hb+20..31
-        sc = hr[HR_SCALE_BASE:HR_SCALE_BASE + 12]
-        lv = dict(rmin=sc[0], rmax=sc[1], emin=s16(sc[2]), emax=s16(sc[3]))
-        fl = dict(rmin=sc[4], rmax=sc[5], emin=s16(sc[6]), emax=s16(sc[7]))
-        u_lv, u_fl, filt, stamp = sc[8], sc[9], sc[10], sc[11]
-        self.note(f"escala Nivel : raw {lv['rmin']}..{lv['rmax']}  eng {lv['emin']/100:.2f}..{lv['emax']/100:.2f}  "
-                  f"unidad={UNITS_LEVEL[u_lv] if u_lv < 4 else u_lv}  filtro={filt}  sello={stamp}")
-        self.note(f"escala Caudal: raw {fl['rmin']}..{fl['rmax']}  eng {fl['emin']/100:.2f}..{fl['emax']/100:.2f}  "
-                  f"unidad={UNITS_FLOW[u_fl] if u_fl < 4 else u_fl}")
-        self.ok(lv["rmax"] > lv["rmin"], "escala Nivel: raw_max > raw_min")
-        self.ok(fl["rmax"] > fl["rmin"], "escala Caudal: raw_max > raw_min")
-        self.ok(lv["emax"] != lv["emin"], "escala Nivel: eng_max != eng_min")
-        self.ok(u_lv < 4 and u_fl < 4, "codigos de unidad en rango 0..3")
+        # hb+20..31 (bloque de escala): OBSOLETO desde v3, no se verifica. La
+        # calibracion vive en el portal del nodo remoto; este rango del MAPA B
+        # puede estar en blanco o con basura, no significa nada.
         if alm & (1 << 9):
-            self.warning("alarma 'Escala invalida' activa en esta estacion")
+            self.warning("alarma 'Escala invalida' (bit 9) activa -- revisar si sigue "
+                         "teniendo sentido desde v3 (bloque hb+20..31 obsoleto)")
 
     # ---------------------------------------------------------------
     def write_tests(self, s):
@@ -197,22 +189,9 @@ class Checker:
         self.ok(c is not None and not c[CO_ACK_ALARMS],
                 "coil 'reconocer alarmas' (cb+5) se auto-limpia tras el pulso")
 
-        # 2) aplicar el bloque de escala (mismos valores) cambia el sello
-        hr = self.hr(s * HR_STRIDE + HR_SCALE_BASE, 12)
-        if not self.ok(hr is not None, "lee el bloque de escala"):
-            return
-        stamp_before = hr[11]
-        self.c.write_registers(s * HR_STRIDE + HR_SCALE_BASE, hr, slave=self.u)
-        self.c.write_coil(base_co + CO_APPLY_SCALE, True, slave=self.u)
-        time.sleep(1.5)
-        hr2 = self.hr(s * HR_STRIDE + HR_SCALE_BASE, 12)
-        c2 = self.co(base_co, 16)
-        self.ok(c2 is not None and not c2[CO_APPLY_SCALE],
-                "coil 'aplicar escala' (cb+8) se auto-limpia")
-        self.ok(hr2 is not None and hr2[11] != stamp_before,
-                f"el sello de config cambia al aplicar ({stamp_before} -> {hr2[11] if hr2 else '?'})")
-        self.ok(hr2 is not None and hr2[0:11] == hr[0:11],
-                "los valores de escala quedan intactos (se escribieron los mismos)")
+        # cb+8 "aplicar escala" y el bloque hb+20..31 quedaron OBSOLETOS desde
+        # v3 (la calibracion vive en el portal del nodo remoto) -- ya no se
+        # prueban aqui.
 
 
 def main():
