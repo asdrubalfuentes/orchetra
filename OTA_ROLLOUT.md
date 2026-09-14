@@ -223,3 +223,29 @@ mantenimiento*.
 - [ ] `pio run` local OK; compila en CI con credenciales vacías
 - [ ] tag `vX.Y.Z` sobre `main` → Release "latest" con 3 assets
 - [ ] equipo real: sube de `X.Y.Z` a `X.Y.Z+1` y reinicia solo
+
+---
+
+## 9. Chequeo manual — F2 y comando serial (2026-09-14)
+
+`nodeIO` y `nodeIO_master` no dependían antes de nada para *descubrir* que
+había una actualización: `nodeIO_master` se auto-chequea solo (al conectar
+WiFi y cada 6h); `nodeIO` **no** se auto-chequea (solo vía comando LoRa `OTA`
+disparado por el gateway). Se agregaron dos disparadores manuales, iguales en
+ambos firmwares, útiles en banco/puesta en marcha sin esperar esas ventanas:
+
+| Disparador | `nodeIO` | `nodeIO_master` |
+|---|---|---|
+| **F2 mantenido 4-5s** (modo normal) | `runOtaCheckNow()` | `otaMaybeCheck(true)` |
+| **Comando Serial/USB** `buscar actualizacion` (o `ota`) + Enter, 115200 baud | `runOtaCheckNow()` | `otaMaybeCheck(true)` (se desactiva si `mcfg.mbUsb` — Modbus RTU por USB) |
+
+Ambos reusan el mismo callback de progreso (`otaOled()`) que ya mostraba la
+descarga en el OLED. Se corrigió de paso un bug donde el resultado de un
+chequeo manual sin actualización (al día / error) apenas parpadeaba en el
+OLED antes de que el `loop()` normal repintara la pantalla de estado encima
+— ahora se sostiene ~1.8s.
+
+Versiones: `nodeIO_master v1.5.2` (incluye también el fix de
+`ackTimeoutMs` 500→2000ms, ver `REGISTER_MAP.md`/`CHANGELOG.md` de ese
+repo — la trama `ST` v3 tarda más en el aire que el timeout heredado
+pre-pivote y el nodo quedaba adoptado pero siempre offline), `nodeIO v1.4.1`.

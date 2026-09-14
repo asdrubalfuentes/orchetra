@@ -53,10 +53,17 @@ repos; este define **el contrato que los une** y la documentación que los cruza
   cautivo). El gateway gana **MAPA A2** con esos valores ya calculados y
   cierra día/mes automático por SNTP; el LOGO! pasa de *calcular* a *relayar*.
   Detalle completo: [`REGISTER_MAP.md` §3.4 y §8](REGISTER_MAP.md).
-- **Firmwares migrados y etiquetados:** `nodeIO v1.4.0`, `nodeIO_master
-  v1.5.0`, `miHMI v0.5.0` — todos con OTA "GitHub Releases pull". `nodeIO` no
-  se auto-chequea (F2 4-5s, o botón del portal del gateway); `nodeIO_master`
-  y `miHMI` sí, automático.
+- **Firmwares migrados y etiquetados:** `nodeIO v1.4.1`, `nodeIO_master
+  v1.5.2`, `miHMI v0.5.0` — todos con OTA "GitHub Releases pull". `nodeIO` no
+  se auto-chequea (botón del portal del gateway, **F2 4-5s**, o el comando
+  **`buscar actualizacion`** por Serial/USB); `nodeIO_master` y `miHMI` sí,
+  automático (además de F2/serial para forzarlo ya — ver
+  [`OTA_ROLLOUT.md` §9](OTA_ROLLOUT.md)).
+- **Fix de campo (2026-09-14):** `nodeIO_master` mostraba el nodo adoptado
+  siempre `offline` — `ackTimeoutMs` (500 ms de fábrica) quedaba corto para
+  la trama `ST` v3 (~650-700 ms de aire a SF9/BW125). Subido a 2000 ms
+  (`v1.5.2`); equipos ya en campo solo necesitan el cambio por portal, sin
+  reflashear.
 - **LOGO! 9 real:** migrado por el usuario en LSC siguiendo
   [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) — MAPA A2 (nivel/caudal/
   acumulados/`almBits`), fusión de alarmas y bloque global verificados en
