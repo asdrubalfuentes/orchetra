@@ -47,22 +47,28 @@ repos; este define **el contrato que los une** y la documentación que los cruza
 
 ## Estado
 
-- **Contrato `CONTRACT_VERSION 2`** (perfil LOGO!: bloque global en Holding
-  Registers `HR 96`, FC02 opcional). Adición compatible posterior (sin subir la
-  versión): `cb+5` = ACK de alarmas · `hb+14` = alarmas latcheadas. Al día:
-  `plc_sim.py`, `miHMI`, `mapb_check.py` — `mapb_check --write` da 0 FAIL.
-- Cadena `nodo → pasarela → PLC-SIM → HMI` funcionando en banco.
-- **LOGO! 9:** ingesta confirmada (el LOGO! es **cliente Modbus** y sondea la
-  pasarela directo). Falta construir el programa FBD siguiendo
-  [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) y verificar con `mapb_check`.
-- **OTA "GitHub Releases pull"** ([`OTA_ROLLOUT.md`](OTA_ROLLOUT.md)): aplicado a
-  `nodeIO` (por comando LoRa), `nodeIO_master` y `miHMI` (autoactualización).
-  `LoraSenderAysafi` es la referencia (fix de redirects aplicado). Faltan los
-  tags de release.
-- **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)): **firmware del gateway
-  hecho** (`nodeIO_master 1.4.0`: MAPA G + `mqtt_bridge` + SNTP + portal). Falta
-  el lado LOGO! (Network Output/Input de `PLC_REGISTER_RECIPE.md §10`). Desde
-  1.4.0 la identidad (tabla de nodos, canal, WiFi, MQTT) sobrevive a los bumps de
+- **Contrato `CONTRACT_VERSION 3`** — **cambio de rumbo (2026-09-14):** el
+  escalado, filtro EMA, totalizador día/mes y alarma de nivel/caudal se
+  mueven del LOGO! al **nodo remoto** (`nodeIO`, calibrado en su portal
+  cautivo). El gateway gana **MAPA A2** con esos valores ya calculados y
+  cierra día/mes automático por SNTP; el LOGO! pasa de *calcular* a *relayar*.
+  Detalle completo: [`REGISTER_MAP.md` §3.4 y §8](REGISTER_MAP.md).
+- **Firmwares migrados y etiquetados:** `nodeIO v1.4.0`, `nodeIO_master
+  v1.5.0`, `miHMI v0.5.0` — todos con OTA "GitHub Releases pull". `nodeIO` no
+  se auto-chequea (F2 4-5s, o botón del portal del gateway); `nodeIO_master`
+  y `miHMI` sí, automático.
+- **LOGO! 9 real:** migrado por el usuario en LSC siguiendo
+  [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) — MAPA A2 (nivel/caudal/
+  acumulados/`almBits`), fusión de alarmas y bloque global verificados en
+  campo. Pendiente: replicar en estación 1 el detalle fino, y decidir dónde
+  van `caudal bajo`/`caudal alto` en el árbol de 11→12 alarmas si hace falta
+  más que la fusión ya hecha.
+- **Sin migrar, fuera del alcance de este cambio:** `modbusMaster`/PLC-SIM
+  sigue aplicando el escalado él mismo sobre MAPA A crudo (útil para probar
+  el resto del contrato, no el escalado del nodo).
+- **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md)): firmware del gateway
+  hecho, con `acum_dia_m3`/`acum_mes_m3` ya alineados a la escala ×1000 de v3.
+  Identidad (tabla de nodos, canal, WiFi, MQTT, TZ) sobrevive a bumps de
   `CFG_MAGIC` (claves sueltas NVS + espejo LittleFS).
 
 ## Verificador de conformidad
