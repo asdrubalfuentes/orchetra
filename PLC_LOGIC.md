@@ -1,9 +1,14 @@
 # Lógica del PLC LOGO! 9 — Orquestación Aysafi
 
-Programa del **Siemens LOGO! 9** (LOGO! Soft Comfort V9) que cubre los
-requerimientos de la orquestación: escalar la E/S remota que llega por LoRa,
-integrar acumulados, generar alarmas, gobernar la sirena y publicar todo por
-Modbus TCP (**MAPA B** del [contrato](REGISTER_MAP.md)) para el HMI y el SCADA.
+Programa del **Siemens LOGO! 9** (LOGO! Soft Comfort V9). **Desde
+`CONTRACT_VERSION 3`** (cambio de rumbo 2026-09) el LOGO! ya **no** escala,
+filtra ni totaliza — eso lo hace el **nodo remoto** (`nodeIO`, ver
+`nodeIO/src/channels.cpp` y su portal cautivo). El LOGO! ahora: relee **MAPA
+A2** del gateway (nivel/caudal ya escalados + acumulados + alarma de proceso,
+ya calculados) y lo **relaya** a MAPA B, combina eso con las alarmas de
+enlace/dispositivo que sí sigue calculando él, gobierna la sirena y
+lee/escribe relés. Ver [`REGISTER_MAP.md` §3.4](REGISTER_MAP.md) para el
+detalle de MAPA A2 y el changelog completo del cambio de rumbo.
 
 ## 0. Realidad de la herramienta (léelo antes)
 
@@ -26,23 +31,28 @@ Modbus TCP (**MAPA B** del [contrato](REGISTER_MAP.md)) para el HMI y el SCADA.
 
 ```
   nodos LoRa (nodeIO) ──LoRa──► nodeIO_master ──Modbus TCP──►  LOGO! 9
-                                (LoRa Gateway)  MAPA A (:502)    │  cliente Modbus: LEE el MAPA A
-                                                servidor         │  programa FBD: escala + alarmas
-                                                                 │  + sirena + totalizador
+  escala+totaliza+alarma        (LoRa Gateway)  MAPA A  (:502)   │  cliente Modbus: LEE MAPA A (DI/RSSI/
+                                                MAPA A2 (:502)   │  edad) y MAPA A2 (nivel/caudal ya
+                                                servidor         │  escalados + acumulados + almBits)
+                                                                 │  programa FBD: RELAYA A2→B + alarmas
+                                                                 │  de enlace/dispositivo + sirena
                                                                  │  servidor Modbus: MAPA B (:502)
   HMI / SCADA ──Modbus TCP──► leen el MAPA B del LOGO! ◄─────────┘
 ```
 
 El LOGO! 9 hace **de las dos cosas a la vez**:
-- **cliente** Modbus TCP → sondea el MAPA A del gateway y lo mete en su VM (como el PLC-SIM);
-- **servidor** Modbus TCP → publica el MAPA B (calculado por el programa FBD) para el HMI y el SCADA.
+- **cliente** Modbus TCP → sondea MAPA A (crudo/DI/enlace) **y MAPA A2** (ya
+  escalado) del gateway y los mete en su VM;
+- **servidor** Modbus TCP → publica el MAPA B (relay de A2 + lo que sí calcula
+  él: alarmas de enlace/dispositivo, sirena) para el HMI y el SCADA.
 
 Zonas de VM:
 
 | Zona | Quién escribe | Quién lee | Contenido |
 |---|---|---|---|
-| **ENTRADA (crudo)** | el propio LOGO! (Network Input Modbus) | el programa FBD | por estación: nivel raw, caudal raw, DI (presostato/voltaje/tamper), enlace, RSSI, edad |
-| **MAPA B** | el programa FBD (+ el HMI escribe el bloque de escala y los coils de comando) | HMI, SCADA | nivel/caudal escalados, acumulados, estado, alarmas, RSSI, edad, bloque de escala |
+| **ENTRADA (crudo, MAPA A)** | el propio LOGO! (Network Input Modbus) | el programa FBD | por estación: DI (presostato/voltaje/tamper), enlace, RSSI, edad — nivel/caudal raw quedan de diagnóstico, ya no alimentan ningún cálculo |
+| **ENTRADA (MAPA A2, desde v3)** | el propio LOGO! (Network Input Modbus) | el programa FBD (solo relay) | nivel/caudal ya escalados, 4 acumulados, `almBits` — ver [`REGISTER_MAP.md` §3.4](REGISTER_MAP.md) |
+| **MAPA B** | el programa FBD (relay de A2 + alarmas propias + sirena; coils de comando los escribe el HMI) | HMI, SCADA | nivel/caudal, acumulados, estado, alarmas, RSSI, edad. `hb+20..31` (bloque de escala) **obsoleto**, no se toca |
 
 ### Cómo entra el MAPA A al LOGO!  (confirmado: LOGO! cliente Modbus)
 
@@ -76,6 +86,26 @@ Registro por registro (estación 0; para la 1 sumar 16):
 
 Bloque **global** del MAPA A: marca `0x0203` en registro `900` (cable) → **`901`** en el LOGO!.
 
+### MAPA A2 — nivel/caudal/acumulados/alarma ya calculados (desde v3)
+
+Mismo dispositivo (el gateway), **mismo objeto de conexión Modbus** que ya usas
+para MAPA A — solo agregas filas a su tabla de transferencia. Base gateway
+`c = 200 + slot·16`; en LSC (1-based) = `c+1`. Por estación (slot 0; para el
+slot 1 sumar 16 al origen y 64 al destino VW — mismo patrón que MAPA B):
+
+| Campo | Registro gateway (cable) | LSC (1-based) | Palabras | Destino VW | Nota |
+|---|---|---|---|---|---|
+| Nivel + caudal escalados | `200` | **201** | 2 | `VW0` | **copia directa**, sin fórmula — el nodo ya lo escaló |
+| Acumulado día | `202` | **203** | 2 | `VW8` (`VD8`) | copia directa (m³ ×1000, mismo que publica MAPA B — sin conversión) |
+| Acumulado mes | `204` | **205** | 2 | `VW12` (`VD12`) | ídem |
+| `almBits` | `210` | **211** | 1 | `VW544` (scratch) | ver fusión de alarmas, §5 |
+
+Estación 1 (slot 1, base gateway `216`): `IR217`→`VW64`, `IR219`→`VW72`
+(`VD72`), `IR221`→`VW76` (`VD76`), `IR227`→`VW546`.
+
+> Nada de esto pasa por ningún `Float Mathematic` — es relay puro. El único
+> bloque que sigue existiendo es la fusión de `almBits` en `Alarmas` (§5).
+
 **Escritura de la sirena de vuelta al nodo:** *Network Output → Modbus*, **FC05**
 (escribir 1 coil), dispositivo = el mismo gateway, coil `slot·16 + 0` (cable) →
 **`slot·16 + 1`** en el LOGO!, valor = `sirena[s]` (§6).
@@ -87,7 +117,7 @@ Si tu V9 no permite *Network Output* Modbus, cablea la sirena a un **`Q` local**
 
 ---
 
-## 2. Mapa VM ↔ Modbus (perfil LOGO!, `CONTRACT_VERSION 2`)
+## 2. Mapa VM ↔ Modbus (perfil LOGO!, `CONTRACT_VERSION 3`)
 
 `CONTRACT_VERSION 2` = el MAPA B v1 con **dos ajustes obligados por el LOGO!**:
 
@@ -120,12 +150,12 @@ Por estación `s`, base `b = s·32` (HR PDU) ↔ `VW(2·b)`:
 
 | HR | Campo | Tipo | Notas |
 |---|---|---|---|
-| `b+0` | Nivel ×100 | int16 | escalado (§3) |
-| `b+1` | Caudal ×100 | int16 | escalado (§3) |
+| `b+0` | Nivel ×100 | int16 | **relay directo** desde MAPA A2 (ya escalado por el nodo, §3) |
+| `b+1` | Caudal ×100 | int16 | **relay directo** desde MAPA A2 |
 | `b+2` | Nivel raw (eco) | uint16 | copia de la zona ENTRADA |
 | `b+3` | Caudal raw (eco) | uint16 | |
-| `b+4..5` | Acumulado día, m³ ×10 | int32 (VD, palabra alta primero) | totalizador (§4) |
-| `b+6..7` | Acumulado mes, m³ ×10 | int32 (VD) | |
+| `b+4..5` | Acumulado día, m³ **×1000** | int32 (VD, palabra alta primero) | **relay directo** desde MAPA A2 (§4) — cambió de ×10 en v3 |
+| `b+6..7` | Acumulado mes, m³ **×1000** | int32 (VD) | ídem |
 | `b+8` | Estado (bitfield) | uint16 | b0 presostato · b1 volt local · b2 tamper · b3 reserva · b4 sirena activa · b5 enlace OK · b6 en alarma · b7 sirena AUTO |
 | `b+9` | Alarmas (bitfield) | uint16 | §5 |
 | `b+10` | RSSI | int16 | eco |
@@ -133,15 +163,7 @@ Por estación `s`, base `b = s·32` (HR PDU) ↔ `VW(2·b)`:
 | `b+12` | Vínculo (dir. LoRa) | uint16 | eco |
 | `b+13` | Contador de fallos de lectura | uint16 | opcional |
 | `b+14` | Alarmas latcheadas (bitfield) | uint16 | flanco + hold hasta ACK (`cb+5`); ver §5 |
-| `b+20` | Nivel raw_min ("cero") | uint16 | **lo escribe el HMI** |
-| `b+21` | Nivel raw_max ("span") | uint16 | " |
-| `b+22` | Nivel eng_min ×100 | int16 | " |
-| `b+23` | Nivel eng_max ×100 | int16 | " |
-| `b+24..27` | Caudal raw_min/raw_max/eng_min/eng_max | | " |
-| `b+28` | Unidad de nivel (0=%,1=m,2=cm,3=mca) | uint16 | " |
-| `b+29` | Unidad de caudal (0=L/s,1=m³/h,2=L/min,3=GPM) | uint16 | " |
-| `b+30` | Filtro 0..100 | uint16 | " (EMA en §3) |
-| `b+31` | Sello de config | uint16 | lo **incrementa el LOGO!** al aplicar `cb+8` |
+| `b+20..31` | **OBSOLETO desde v3** | — | calibración movida al portal del nodo (`nodeIO`); no toques este rango |
 
 Estación 0 → HR `0..31` (VW0..VW62). Estación 1 → HR `32..63` (VW64..VW126).
 
@@ -162,7 +184,7 @@ Estación 0 → HR `0..31` (VW0..VW62). Estación 1 → HR `32..63` (VW64..VW126
 | `101..102` | Uptime (s, int32) | contador de segundos |
 | `103` | Origen | **`1` = LOGO! real** (constante) |
 | `104` | Versión de lógica | libre (p.ej. `1`) |
-| `105` | `CONTRACT_VERSION` | `2` |
+| `105` | `CONTRACT_VERSION` | **`3`** (subir la constante `VW210` si venías de v2) |
 
 ### 2.4 Comandos — Coils (FC01/05), base `s·16`
 
@@ -173,192 +195,97 @@ Los coils Modbus del LOGO! se mapean a marcas `M` que el programa lee.
 | `s·16 + 0` | Sirena ON manual | efectivo solo si `cb+1 = 0` |
 | `s·16 + 1` | Sirena AUTO | `1` = la controla la lógica |
 | `s·16 + 2` | Silenciar (pulso) | el LOGO! lo auto-limpia |
-| `s·16 + 3` | Reset acumulado del día (pulso) | exige `cb+9` armado |
-| `s·16 + 4` | Reset acumulado del mes (pulso) | exige `cb+9` armado |
+| `s·16 + 3` | **OBSOLETO desde v3** | el LOGO! ya no totaliza; el cierre real lo dispara el gateway al nodo por SNTP |
+| `s·16 + 4` | **OBSOLETO desde v3** | ídem |
 | `s·16 + 5` | Reconocer / resetear alarmas (pulso) | borra `HR b+14` con la causa despejada |
-| `s·16 + 8` | Aplicar bloque de escala (pulso) | el LOGO! valida `HR b+20..31`, persiste y sube `HR b+31` |
-| `s·16 + 9` | Armar reset | habilita `cb+3`/`cb+4` |
+| `s·16 + 8` | **OBSOLETO desde v3** | nada lo lee |
+| `s·16 + 9` | Armar reset | sin uso (solo protegía `cb+3`/`cb+4`, ambos obsoletos) |
 
 ---
 
-## 3. Escalado crudo → ingeniería  (por estación, por variable)
+## 3. Escalado crudo → ingeniería — **movido al nodo desde v3**
 
-Parámetros desde `HR b+20..31` (los edita el HMI). Fórmula del contrato §5.
+Ya no corre en el LOGO!. El nodo remoto (`nodeIO/src/channels.cpp`) escala,
+filtra (EMA) y publica el resultado en MAPA A2; el LOGO! solo lo copia a
+`hb+0`/`hb+1` (ver §1, sección "MAPA A2"). La fórmula (idéntica, solo cambió
+de sitio) y los valores por defecto están en
+[`REGISTER_MAP.md` §5](REGISTER_MAP.md). Calibración: portal cautivo del nodo,
+no la página de rangos del HMI (que se eliminó).
 
-### Pseudocódigo (referencia)
+## 4. Totalizador de acumulados — **movido al nodo desde v3**
 
-```
-FUNCTION escala(raw : INT; rmin, rmax : INT; emin, emax : INT;
-                filtro : INT; VAR y_filt : REAL) : INT
-  IF rmax <= rmin OR emax = emin THEN
-     alarma[SCALE_BAD] := TRUE ;  RETURN emin
-  END_IF
-  span := rmax - rmin
-  margen := span * MARGEN_PCT / 100          // MARGEN_PCT = 2
-  IF raw < rmin - margen OR raw > rmax + margen THEN alarma[OVERRANGE] := TRUE END_IF
-
-  y := emin + (raw - rmin) * (emax - emin) / span
-  y := LIMIT(min(emin,emax), y, max(emin,emax))
-
-  IF filtro > 0 THEN                          // EMA
-     a := 1.0 - filtro / 101.0
-     y_filt := y_filt + (y - y_filt) * a
-     RETURN REAL_TO_INT(y_filt)
-  END_IF
-  RETURN REAL_TO_INT(y)
-END_FUNCTION
-
-// por ciclo, por estación s y variable v (nivel, caudal):
-ENT_B[s].nivel_x100  := escala(ENT[s].nivel_raw,  B[s].n_rmin, B[s].n_rmax,
-                               B[s].n_emin, B[s].n_emax, B[s].filtro, filt_n[s])
-ENT_B[s].caudal_x100 := escala(ENT[s].caudal_raw, B[s].c_rmin, B[s].c_rmax,
-                               B[s].c_emin, B[s].c_emax, B[s].filtro, filt_c[s])
-```
-
-### En FBD (por cada variable de cada estación)
-
-1. **Float Mathematic** `M1`: `(raw − rmin)` — entradas: `Vraw` (zona ENTRADA),
-   `V(b+20)` (rmin). *(raw y rmin llegan como VW; el bloque los toma como float.)*
-2. **Float Mathematic** `M2`: `(emax − emin)` — `V(b+23) − V(b+22)`.
-3. **Float Mathematic** `M3`: `(rmax − rmin)` — `V(b+21) − V(b+20)`.
-4. **Float Mathematic** `M4`: `M1 · M2 / M3` (con prioridad; si tu V9 no permite
-   3 operandos con `·` y `/`, encadena: `M4a = M1·M2`, `M4 = M4a / M3`).
-5. **Float Mathematic** `M5`: `emin + M4` → **valor escalado**.
-6. **Analog Filter** (media móvil): entrada `M5`, "número de muestras" ≈ f(filtro).
-   *(Si prefieres el EMA exacto del contrato, hazlo con un Float Math:
-   `y_filt = y_filt + (M5 − y_filt)·a`, realimentando su salida; `a` de `V(b+30)`.)*
-7. **Analog Comparator** `C_bad`: `rmax ≤ rmin` → bit `SCALE_BAD` de esa estación.
-8. **Analog Threshold Trigger** `T_or`: `raw` fuera de `[rmin−m, rmax+m]` → bit
-   `OVERRANGE`.
-9. La salida de (6) → `V(b+0)` (nivel) o `V(b+1)` (caudal) mediante el mapeo VM.
-
-> Si en tu instalación el nivel siempre es **%** con `0..4095 → 0..100`, puedes
-> sustituir M1..M5 por **un solo Analog Amplifier** (Gain = 100/4095, Offset = 0)
-> y dejar el bloque de escala editable para el caudal. Es menos flexible pero usa
-> 1 bloque en vez de 5.
-
-### Aplicar cambios de escala (coil `cb+8`)
-
-```
-IF pulso(cb[s].APPLY_SCALE) THEN
-   IF escala válida(B[s]) THEN
-      persistir B[s].(rmin..filtro)          // el LOGO! guarda en VM retentiva
-      B[s].sello := (B[s].sello + 1) AND 16#FFFF
-      reset filt_n[s], filt_c[s]
-   END_IF
-END_IF
-```
-
-FBD: **Latch/RS** o **pulso** desde el coil → habilita un **Analog MUX** que copia
-`V(b+20..31)` a un juego de VW retentivos (o simplemente los deja como están si ya
-son retentivos) → **Up Counter** de 1 paso sobre `V(b+31)`.
+Ya no corre en el LOGO!. El nodo integra caudal → m³/día y m³/mes-en-curso
+(mismo factor `k` por unidad que documentaba esta sección, ahora en
+`nodeIO/src/channels.cpp`), persistido en su propia NVS. El LOGO! solo copia
+el resultado a `hb+4..7` (MAPA A2 → MAPA B, sin conversión — ambos ya en
+m³ ×1000). El nodo **nunca cierra día/mes solo** (sin reloj propio confiable):
+el gateway, con hora real por SNTP, se lo dispara por LoRa (`CD`/`CM`,
+automático al cruzar medianoche/fin de mes en hora local) — ver
+`nodeIO_master`, `dayMonthScheduler()`. Los coils `cb+3`/`cb+4`/`cb+8` del
+LOGO! quedaron obsoletos, nada los lee.
 
 ---
 
-## 4. Totalizador de acumulados  (día y mes, por estación)
+## 5. Árbol de alarmas  (bitfield `HR b+9`) — parte nodo, parte LOGO! desde v3
 
-LOGO! 9 float: integración por realimentación, **muestreada a 1 s** para que el
-paso sea determinista.
-
-### Pseudocódigo
-
-```
-// factor de unidad de caudal -> m³/s  (unidad en HR b+29)
-CASE B[s].unidad_caudal OF
-  0: k := 1.0/1000.0        // L/s
-  1: k := 1.0/3600.0        // m³/h
-  2: k := 1.0/60000.0       // L/min
-  3: k := 3.785411784/60000.0   // GPM
-END_CASE
-
-ON pulso_1s:                                 // cada 1 s exacto
-  incr_m3 := (B[s].caudal_x100 / 100.0) * k * 1.0     // dt = 1 s
-  IF día_cambió(s) OR pulso(cb[s].RESET_DAY  AND cb[s].ARM) THEN acc_dia[s]  := 0.0
-  ELSE acc_dia[s] := acc_dia[s] + incr_m3 END_IF
-  IF mes_cambió(s) OR pulso(cb[s].RESET_MONTH AND cb[s].ARM) THEN acc_mes[s] := 0.0
-  ELSE acc_mes[s] := acc_mes[s] + incr_m3 END_IF
-
-// publicar como int32 ×10 (contrato)
-B[s].acc_dia_i32 := REAL_TO_DINT(acc_dia[s] * 10.0)
-B[s].acc_mes_i32 := REAL_TO_DINT(acc_mes[s] * 10.0)
-```
-
-### En FBD
-
-- **Reloj simétrico / generador de pulsos asíncrono** a **1 Hz** → señal
-  `P1s` (ancho 1 ciclo).
-- **Float Mathematic** `INCR`: `V(b+1) / 100 · k` (k según unidad; si la unidad es
-  fija, k es constante; si no, un **Analog MUX** elige k entre 4 constantes según
-  `V(b+29)`).
-- **Float Mathematic** `ACC_DIA`: entradas `ACC_DIA` (su propia salida) `+`
-  `INCR·P1s` → realimentar. `P1s` multiplica el incremento (0 cuando no toca).
-- **Analog MUX** `SEL_DIA`: entrada 0 = `ACC_DIA`, entrada 1 = `0.0`, control =
-  `reset_dia = P_media_noche OR (pulso(RESET_DAY) AND ARM)`. Salida → realimenta a
-  `ACC_DIA`.
-- **Reloj astronómico / temporizador semanal** para `P_media_noche` (flanco a las
-  00:00) y `P_fin_de_mes` (día del mes vuelve a 1).
-- **Float Mathematic** `PUB_DIA`: `ACC_DIA · 10` → **Analog → DWord** → `VD(b+4)`
-  (2 Holding Registers, palabra alta primero — configúralo en el mapeo Modbus).
-- Idéntico para el mes con `ACC_MES` y `P_fin_de_mes`.
-
-> Si tu V9 no permite realimentar un Float Math a sí mismo, intercala una **marca
-> analógica `AM`** (o un `Analog flag`) entre la salida y la entrada: `AM` guarda
-> el acumulado y se re-lee al ciclo siguiente.
-
----
-
-## 5. Árbol de alarmas  (bitfield `HR b+9`)
-
-| Bit | Alarma | Condición | Retardo |
+| Bit | Alarma | Origen desde v3 | Condición / retardo |
 |---|---|---|---|
-| 0 | Nivel alto | `nivel_x100 ≥ umbral_alto[s]` | — |
-| 1 | Nivel bajo | `nivel_x100 ≤ umbral_bajo[s]` | — |
-| 2 | Nivel muy bajo (marcha en seco) | `nivel_x100 ≤ umbral_mb[s]` | — |
-| 3 | Sin caudal con presostato | `presostato AND caudal_x100 ≤ eps` | `T_noflow` (10 s) |
-| 4 | Falla de presostato | `volt_local AND NOT presostato` | `T_pressfail` (15 s) |
-| 5 | Pérdida de voltaje local | `NOT volt_local` | — |
-| 6 | Tamper / tapa abierta | `tamper` | — |
-| 7 | Pérdida de enlace LoRa | `NOT enlace` | `T_loraloss` (20 s) |
-| 8 | Dato obsoleto | `edad > T_stale (15 s)` | — |
-| 9 | Config de escala inválida | de §3 | — |
-| 10 | Sobre-rango de instrumento | de §3 | — |
+| 0 | Nivel alto | **nodo** (`MAPA A2.almBits` bit1) | umbral configurado en el nodo |
+| 1 | Nivel bajo | **nodo** (bit0) | ídem |
+| 2 | Nivel muy bajo (marcha en seco) | *sin fuente* | el nodo solo tiene 1 umbral bajo, no 2 |
+| 3 | Caudal bajo | **nodo** (bit2) — antes "sin caudal con presostato" | umbral configurado en el nodo |
+| 4 | Falla de presostato | **LOGO!** (sin cambios) | `volt_local AND NOT presostato`, `T_pressfail` (15 s) |
+| 5 | Pérdida de voltaje local | **LOGO!** | `NOT volt_local` |
+| 6 | Tamper / tapa abierta | **LOGO!** | `tamper` |
+| 7 | Pérdida de enlace LoRa | **LOGO!** | `NOT enlace`, `T_loraloss` (20 s) |
+| 8 | Dato obsoleto | **LOGO!** | `edad > T_stale` (15 s) |
+| 9 | Config de escala inválida | *sin fuente* | el LOGO! ya no valida escala |
+| 10 | Sobre-rango de instrumento | *sin fuente* | ídem |
+| 11 | Caudal alto | **nodo** (bit3) — nuevo en v3 | umbral configurado en el nodo |
 
-### Pseudocódigo
+### Pseudocódigo — solo lo que sigue calculando el LOGO! (bits 4,5,6,7,8)
 
 ```
 al := 0
-IF niv >= UA[s] THEN al := al OR ALM_LEVEL_HI   END_IF
-IF niv <= UB[s] THEN al := al OR ALM_LEVEL_LO   END_IF
-IF niv <= UMB[s] THEN al := al OR ALM_LEVEL_LOLO END_IF
-IF TON(presostato AND (cau <= EPS), T_noflow)       THEN al := al OR ALM_NO_FLOW    END_IF
 IF TON(volt_local AND NOT presostato, T_pressfail)  THEN al := al OR ALM_PRESS_FAIL END_IF
 IF NOT volt_local THEN al := al OR ALM_VOLT_LOSS END_IF
 IF tamper        THEN al := al OR ALM_TAMPER    END_IF
 IF TON(NOT enlace, T_loraloss)  THEN al := al OR ALM_LORA_LOSS END_IF
 IF edad > T_stale THEN al := al OR ALM_STALE END_IF
-al := al OR (scale_bad[s] ? ALM_SCALE_BAD : 0) OR (overrange[s] ? ALM_OVERRANGE : 0)
+al := al OR nivel_alto_del_nodo OR nivel_bajo_del_nodo OR caudal_bajo_del_nodo OR caudal_alto_del_nodo
 B[s].alarmas := al
 ```
 
-### En FBD, por estación
+### En FBD, por estación — regla de bit (la misma para todo `Vx.n`)
 
-- Nivel alto/bajo/mb: 3× **Analog Threshold Trigger** (o **Analog Comparator**)
-  con el umbral desde una constante o `VW` de parámetros.
-- Bits 3, 4, 7: **AND** de las señales digitales → **On-Delay (TON)** con el
-  tiempo correspondiente → bit.
-- Bits 5, 6, 8, 9, 10: directos.
-- Empaquetar los 11 bits en `VW(b+9)`: en LOGO! esto se hace **mapeando cada
-  salida digital a un bit de VM** — pero `VWx` son 2 bytes (`x` alto, `x+1`
-  bajo) y el bit-address de LOGO! (`V<byte>.<bit>`) direcciona **byte**, no la
-  palabra completa. **Verificado en campo (2026-09-12): mapear a `Vx.n`
-  escribe el bit en el byte alto → aporta `256·2^n`, no `2^n`.** Regla correcta:
-  - bit `0..7` del valor (`1..128`) → **`V(x+1).n`** (byte bajo)
-  - bit `8..15` del valor (`256..32768`) → **`Vx.(n-8)`** (byte alto)
+`VWx` son 2 bytes (`x` alto, `x+1` bajo); el bit-address de LOGO! (`V<byte>.<bit>`)
+direcciona **byte**, no la palabra completa. **Verificado en campo
+(2026-09-12): mapear a `Vx.n` escribe el bit en el byte alto → aporta
+`256·2^n`, no `2^n`.** Regla correcta:
+- bit `0..7` del valor (`1..128`) → **`V(x+1).n`** (byte bajo)
+- bit `8..15` del valor (`256..32768`) → **`Vx.(n-8)`** (byte alto)
 
-  Para `HR9`/`VW18` (bits 0-10 de alarma): `LEVEL_HI…LORA_LOSS` (bits 0-7) van a
-  `V19.0…V19.7`; `STALE, SCALE_BAD, OVERRANGE` (bits 8-10) van a `V18.0…V18.2`.
-  No hace falta un bloque "encoder", solo la dirección de bit correcta.
-- **OR** de los 11 → bit 6 de `HR_STATUS` (`en alarma`) y entra al `HR 99` global.
+**Bits 4,5,6,7,8** (LOGO!, sin cambios de v2): 5× **On-Delay/Comparator**
+directos, empaquetados en el byte bajo de `HR9`/`VW18` → `V19.4…V19.8`.
+
+**Bits 0,1,3,11** (fusión con el nodo, **as-built** — estación 0):
+la señal cruda `almBits` del nodo llega por *Network Input* a `VW544` (scratch,
+§1 "MAPA A2"); sus bits 0-3 viven en el byte bajo → se leen de **`V545.n`**.
+De ahí, cada uno se cablea directo (sin comparador, ya viene discretizado del
+nodo) al bit de `Alarmas` que le toca:
+
+| Bit del nodo (`almBits`) | Leer de | Escribir a (`Alarmas`, `VW18`) |
+|---|---|---|
+| bit0 nivel.almLo | `V545.0` | `V19.1` (LEVEL_LO) |
+| bit1 nivel.almHi | `V545.1` | `V19.0` (LEVEL_HI) |
+| bit2 caudal.almLo | `V545.2` | `V19.3` (bit 3, "Caudal bajo") |
+| bit3 caudal.almHi | `V545.3` | `V18.3` (bit 11 = byte **alto** de `VW18`, bit `11-8=3`) |
+
+Estación 1: `almBits` llega a `VW546` → leer de `V547.n`; destino `Alarmas` es
+`VW82` (byte bajo `83`, byte alto `82`) → mismos offsets de bit: bits 0/1/3 a
+`V83.*`, bit 11 (caudal alto) a `V82.3`.
+
+- **OR** de los 12 bits usados → bit 6 de `HR_STATUS` (`en alarma`) y entra al `HR 99` global.
 
 ### Latcheo y reconocimiento (`HR b+14`, coil `cb+5`)
 
@@ -426,7 +353,7 @@ ON pulso_1s: HR100 := HR100 + 1         // heartbeat
 HR101..102 := uptime (int32)
 HR103 := 1                              // origen = LOGO! real
 HR104 := 1                              // versión de lógica
-HR105 := 2                              // CONTRACT_VERSION
+HR105 := 3                              // CONTRACT_VERSION
 ```
 
 FBD: **Up Counter** sobre `HR100` y `uptime` disparado por `P1s`; el resto son
@@ -461,7 +388,7 @@ constantes o un **OR** de bits mapeado a VW.
    escalado, alarmas, sirena y totalizador antes de descargar.
 8. **Descarga** al LOGO! por Ethernet. Verifica con
    `python ORCHESTRATION/tools/mapb_check.py --host <IP_LOGO> --port 502` →
-   debe dar **0 FAIL** y `origen = LOGO! real`, `CONTRACT_VERSION = 2`.
+   debe dar **0 FAIL** y `origen = LOGO! real`, `CONTRACT_VERSION = 3`.
 
 ---
 
@@ -476,7 +403,8 @@ constantes o un **OR** de bits mapeado a VW.
 | `REGISTER_MAP.md` / `plc_sim.py` / `miHMI` / `mapb_check.py` | adición compatible `cb+5` (ACK de alarmas) + `hb+14` (alarmas latcheadas); latcheo por defecto `{LEVEL_LOLO, TAMPER}` | **hecho** — no sube `CONTRACT_VERSION` |
 | [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) | hoja de construcción literal (VW/VD/M ↔ Modbus) + §7 parámetros por defecto + §10 puente MQTT | **hecho** |
 | `nodeIO_master` | ninguno en el MAPA A (el OTA por comando LoRa no toca el Modbus) | **no necesario** para el control |
-| **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md) · [`REGISTER_MAP.md §7`](REGISTER_MAP.md)) | el LOGO! espeja MAPA B en el gateway (Network Output FC16) y lee de ahí los comandos de la nube (Network Input FC01), por su conexión Modbus actual. FBD extra en [`PLC_REGISTER_RECIPE.md §10`](PLC_REGISTER_RECIPE.md) | **spec lista; firmware del gateway por hacer** |
+| **Puente MQTT** ([`MQTT_BRIDGE.md`](MQTT_BRIDGE.md) · [`REGISTER_MAP.md §7`](REGISTER_MAP.md)) | el LOGO! espeja MAPA B en el gateway (Network Output FC16) y lee de ahí los comandos de la nube (Network Input FC01), por su conexión Modbus actual. FBD extra en [`PLC_REGISTER_RECIPE.md §10`](PLC_REGISTER_RECIPE.md) | **firmware del gateway hecho** (`nodeIO_master` ≥ `1.4.0`); FBD del LOGO! pendiente |
+| **v3 — cambio de rumbo** ([`REGISTER_MAP.md` §3.4/§8](REGISTER_MAP.md)) | escalado/totalizador/alarma de proceso al nodo (`nodeIO` ≥ `1.4.0`); gateway gana MAPA A2 (`nodeIO_master` ≥ `1.5.0`) + cierre automático de día/mes por SNTP; LOGO! simplificado a relay + alarmas de enlace/dispositivo (este documento); `miHMI` sin página de rangos + histórico de 6 meses (`miHMI` ≥ `0.5.0`) | **firmwares y docs hechos; construcción en LSC hecha por el usuario (§1 MAPA A2, §5 fusión de alarmas) — pendiente `hb+0..7`/alarmas estación 1 y verificación de punta a punta con hardware real** |
 
 ---
 
