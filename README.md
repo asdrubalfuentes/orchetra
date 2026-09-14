@@ -73,12 +73,16 @@ repos; este define **el contrato que los une** y la documentación que los cruza
   la trama `ST` v3 (~650-700 ms de aire a SF9/BW125). Subido a 2000 ms
   (`v1.5.2`); equipos ya en campo solo necesitan el cambio por portal, sin
   reflashear.
-- **LOGO! 9 real:** migrado por el usuario en LSC siguiendo
-  [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) — MAPA A2 (nivel/caudal/
-  acumulados/`almBits`), fusión de alarmas y bloque global verificados en
-  campo. Pendiente: replicar en estación 1 el detalle fino, y decidir dónde
-  van `caudal bajo`/`caudal alto` en el árbol de 11→12 alarmas si hace falta
-  más que la fusión ya hecha.
+- **LOGO! 9 real — cerrado (2026-09-14):** migrado por el usuario en LSC
+  siguiendo [`PLC_REGISTER_RECIPE.md`](PLC_REGISTER_RECIPE.md) y verificado
+  de punta a punta con `tools/mapb_check.py` contra el equipo real:
+  `CONTRACT_VERSION=3`, MAPA A2 (nivel/caudal/acumulados/`almBits`), fusión
+  de alarmas y `Estado.link_ok` todo correcto (los 14 bloques Network Input
+  confirmados byte a byte). Detalle en
+  [`PLC_LOGIC.md` §9](PLC_LOGIC.md). Sigue abierto, sin bloquear el cierre:
+  decidir dónde van `caudal bajo`/`caudal alto` en el árbol de 11→12 alarmas
+  si hace falta más que la fusión ya hecha (próximo tema: alarmas y
+  comandos).
 - **Sin migrar, fuera del alcance de este cambio:** `modbusMaster`/PLC-SIM
   sigue aplicando el escalado él mismo sobre MAPA A crudo (útil para probar
   el resto del contrato, no el escalado del nodo).
