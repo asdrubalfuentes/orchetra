@@ -53,8 +53,14 @@ repos; este define **el contrato que los une** y la documentación que los cruza
   cautivo). El gateway gana **MAPA A2** con esos valores ya calculados y
   cierra día/mes automático por SNTP; el LOGO! pasa de *calcular* a *relayar*.
   Detalle completo: [`REGISTER_MAP.md` §3.4 y §8](REGISTER_MAP.md).
+- **Fix de campo (2026-09-14b):** ningún gateway con **IP fija** tenía DNS
+  configurado (`WiFi.config()` no traía `dns1`/`dns2` — a diferencia de DHCP,
+  que lo recibe del router solo) → `github.com` (OTA) y `pool.ntp.org`/
+  `time.google.com` (SNTP, cierre automático de día/mes) fallaban siempre,
+  el 100% de las veces, sin ser un problema de la red. `nodeIO_master
+  v1.5.3`: `dns1` = el propio router LAN, `dns2` = `8.8.8.8` de respaldo.
 - **Firmwares migrados y etiquetados:** `nodeIO v1.4.1`, `nodeIO_master
-  v1.5.2`, `miHMI v0.5.0` — todos con OTA "GitHub Releases pull". `nodeIO` no
+  v1.5.3`, `miHMI v0.5.0` — todos con OTA "GitHub Releases pull". `nodeIO` no
   se auto-chequea (botón del portal del gateway, **F2 4-5s**, o el comando
   **`buscar actualizacion`** por Serial/USB); `nodeIO_master` y `miHMI` sí,
   automático (además de F2/serial para forzarlo ya — ver
